@@ -21,7 +21,7 @@ exports.handler = async function(event, context) {
     return {
       statusCode: 500,
       headers: corsHeaders,
-      body: JSON.stringify({ error: "Missing ANTHROPIC_API_KEY environment variable" })
+      body: JSON.stringify({ error: "Missing ANTHROPIC_API_KEY" })
     };
   }
 
@@ -61,10 +61,21 @@ exports.handler = async function(event, context) {
           resolve({
             statusCode: 500,
             headers: corsHeaders,
-            body: JSON.stringify({ error: "Non-JSON from Anthropic: " + data.substring(0, 100) })
+            body: JSON.stringify({ error: "Non-JSON response: " + data.substring(0, 200) })
           });
         }
       });
     });
 
     req.on("error", (e) => {
+      resolve({
+        statusCode: 500,
+        headers: corsHeaders,
+        body: JSON.stringify({ error: "Request failed: " + e.message })
+      });
+    });
+
+    req.write(payload);
+    req.end();
+  });
+};
