@@ -754,12 +754,7 @@ function exportText(){
 
 
 async function saveAirtable(){
-  const AT_TOKEN = "patInN5h9tXyzGyzw.cab840c7fbd8b50a4cad52fc484ab68b9d280a81ce5db5605b4fbbe9d797e7bb";
   const AT_BASE  = "appYV9wqR4kEnfmJx";
-  const AT_HEADERS = {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer " + AT_TOKEN
-  };
 
   const saveBtn = document.getElementById("hdr-save");
   const footBtn = document.querySelector(".footer-actions .btn-gold");
@@ -777,7 +772,7 @@ async function saveAirtable(){
     };
     const mtgRes = await fetch("/.netlify/functions/generate", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({service:"airtable",atToken:AT_TOKEN,atPath:"/v0/"+AT_BASE+"/tblrPf9FikIin3NIo",atMethod:"POST",atBody:mtgPayload})
+      body: JSON.stringify({service:"airtable",atPath:"/v0/"+AT_BASE+"/tblrPf9FikIin3NIo",atMethod:"POST",atBody:mtgPayload})
     });
     const mtgData = await mtgRes.json();
     if(!mtgRes.ok) throw new Error(mtgData.error?.message || "Failed to create meeting");
@@ -806,7 +801,7 @@ async function saveAirtable(){
       const batch = troikaRecords.slice(i, i+10);
       const tRes = await fetch("/.netlify/functions/generate", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({service:"airtable",atToken:AT_TOKEN,atPath:"/v0/"+AT_BASE+"/tblMkfH1s03X6yB2L",atMethod:"POST",atBody:{records:batch}})
+        body: JSON.stringify({service:"airtable",atPath:"/v0/"+AT_BASE+"/tblMkfH1s03X6yB2L",atMethod:"POST",atBody:{records:batch}})
       });
       const tData = await tRes.json();
       if(!tRes.ok) throw new Error(tData.error?.message || "Failed to create troikas");
@@ -845,14 +840,13 @@ const AT_BASE_R  = "appYV9wqR4kEnfmJx";
 const AT_HDR_R   = {"Authorization":"Bearer "+AT_TOKEN_R,"Content-Type":"application/json"};
 
 async function loadFromAirtable(){
-  const AT_TOK = "pat2Ui02yOlYVMKXp.0ce63c23c13e24f0798bbcea89dbb344c7a115f3a90b498408efa01bd39a2827";
   const AT_B   = "appYV9wqR4kEnfmJx";
 
   async function atGet(path){
     try{
       const res = await fetch("/.netlify/functions/generate", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({service:"airtable",atToken:AT_TOK,atPath:path,atMethod:"GET"})
+        body: JSON.stringify({service:"airtable",atPath:path,atMethod:"GET"})
       });
       if(!res.ok) throw new Error("HTTP "+res.status);
       return res.json();
