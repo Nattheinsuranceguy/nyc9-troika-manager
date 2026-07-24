@@ -880,12 +880,36 @@ async function loadFromAirtable(){
     const liveMeetings = mtgData.records.map(rec=>{
       const f=rec.fields||{}, mtgId=rec.id;
 
-      // Match troikas to this meeting via the Meeting link field
+      // Match troikas via Meeting link field OR via Troika ID prefix
+      // Troika IDs are stored as e.g. "APR2026-T1", "NYC9MAY-T1" etc
+      const mtgName = (f["fldg5G98g7mcpRT4Y"]||f["Meeting Name"]||"").toUpperCase();
+      const mtgDate = (f["fldns3bTXIg9yGrQl"]||f["Date"]||"");
+      // Build prefix from meeting date (e.g. "2026-04" -> "APR", "2026-05" -> "MAY")
+      const monthNames=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+      const dateParts = mtgDate.split("-");
+      const monthPrefix = dateParts.length>=2 ? monthNames[parseInt(dateParts[1])-1] : "";
+      const yearSuffix = dateParts.length>=1 ? dateParts[0].slice(-2) : "";
+
       const mtgTroikas=allTroikas
         .filter(t=>{
-          const linkField=t.fields&&t.fields["fldNvIa8DQnoMU23e"];
-          const linked=linkField&&Array.isArray(linkField)&&linkField.includes(mtgId);
-          return linked;
+          const tf = t.fields||{};
+          // Method 1: Match via Meeting link field (array of record IDs)
+          const linkField=tf["fldNvIa8DQnoMU23e"];
+          if(linkField&&Array.isArray(linkField)&&linkField.includes(mtgId)) return true;
+          // Method 2: Match via Troika ID prefix (e.g. "APR26-T1" matches April 2026)
+          const troikaId=(tf["fld5I6VqdPUQwd0Fg"]||"").toUpperCase();
+          if(monthPrefix && troikaId.includes(monthPrefix) && troikaId.includes(yearSuffix)) return true;
+          // Method 3: Match via meeting name keywords in troika ID
+          if(mtgName.includes("APRIL")&&troikaId.startsWith("APR")) return true;
+          if(mtgName.includes("MAY")&&troikaId.startsWith("MAY")) return true;
+          if(mtgName.includes("JUNE")&&troikaId.startsWith("JUN")) return true;
+          if(mtgName.includes("JULY")&&troikaId.startsWith("JUL")) return true;
+          if(mtgName.includes("AUGUST")&&troikaId.startsWith("AUG")) return true;
+          if(mtgName.includes("SEPTEMBER")&&troikaId.startsWith("SEP")) return true;
+          if(mtgName.includes("OCTOBER")&&troikaId.startsWith("OCT")) return true;
+          if(mtgName.includes("NOVEMBER")&&troikaId.startsWith("NOV")) return true;
+          if(mtgName.includes("DECEMBER")&&troikaId.startsWith("DEC")) return true;
+          return false;
         })
         .sort((a,b)=>((a.fields&&a.fields["fldnNtZFpyQElbIp2"])||0)-((b.fields&&b.fields["fldnNtZFpyQElbIp2"])||0))
         .map(t=>{
