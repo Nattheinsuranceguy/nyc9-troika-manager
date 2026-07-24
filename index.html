@@ -754,7 +754,7 @@ function exportText(){
 
 
 async function saveAirtable(){
-  const AT_TOKEN = "patInN5h9tXyzGyzw.cab840c7fbd8b50a4cad52fc484ab68b9d280a81ce5db5605b4fbbe9d797e7bb";
+  const AT_TOKEN = "pat2Ui02yOlYVMKXp.0ce63c23c13e24f0798bbcea89dbb344c7a115f3a90b498408efa01bd39a2827";
   const AT_BASE  = "appYV9wqR4kEnfmJx";
   const AT_HEADERS = {
     "Content-Type": "application/json",
@@ -946,8 +946,9 @@ async function renderHistory(){
     MEETINGS_DB_LIVE = liveData;
     console.log("✓ Loaded", liveData.length, "meetings from Airtable");
   } else {
-    MEETINGS_DB_LIVE = MEETINGS_DB; // fallback to hardcoded
-    console.warn("⚠ Airtable load failed or returned empty — using hardcoded data. liveData:", liveData);
+    // Show empty state instead of hardcoded data
+    MEETINGS_DB_LIVE = [];
+    console.warn("⚠ Airtable returned no data. liveData:", JSON.stringify(liveData));
   }
 
   // Compute derived data
@@ -975,6 +976,14 @@ async function renderHistory(){
   });
 
   // Stats
+  if(MEETINGS_DB_LIVE.length === 0){
+    r("history-content",`<div style="text-align:center;padding:60px;color:#718096">
+      <div style="font-size:36px;margin-bottom:12px">⚠️</div>
+      <div style="font-weight:700;font-size:16px;color:#1F3864">Could not load meeting history</div>
+      <div style="font-size:12px;margin-top:8px;color:#a0aec0">Check the browser console (F12) for error details.<br>Make sure your Airtable token is valid and the Netlify function is running.</div>
+    </div>`);
+    return;
+  }
   const totalMembers=MEMBERS_DB.length;
   const totalMeetings=MEETINGS_DB_LIVE.length;
   const totalTroikas=MEETINGS_DB_LIVE.reduce((s,m)=>s+m.troikas.length,0);
