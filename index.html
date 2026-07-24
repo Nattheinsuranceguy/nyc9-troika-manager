@@ -865,10 +865,11 @@ async function loadFromAirtable(){
     }
     console.log("Meetings loaded:",mtgData.records.length);
 
-    // Load troikas in pages of 100
+    // Load troikas in pages of 100 — explicitly request all fields including Meeting link
     let allTroikas=[], offset=null;
     do{
-      const url="/v0/"+AT_B+"/tblMkfH1s03X6yB2L?pageSize=100"+(offset?"&offset="+offset:"");
+      const fields="&fields[]=fldNvIa8DQnoMU23e&fields[]=fldnNtZFpyQElbIp2&fields[]=fldywATjQsxRNDP0I&fields[]=fldA6BEWaNfWoyjPF&fields[]=fldF9EZu92qN0NSoZ&fields[]=fldnn1JUEkhR1DtgL&fields[]=fldtKHQYyymJ8jKR6&fields[]=fldhve8M50ehMe5hS";
+      const url="/v0/"+AT_B+"/tblMkfH1s03X6yB2L?pageSize=100"+fields+(offset?"&offset="+offset:"");
       const tPage = await atGet(url);
       if(!tPage||!tPage.records) break;
       allTroikas=allTroikas.concat(tPage.records);
@@ -883,7 +884,8 @@ async function loadFromAirtable(){
       const mtgTroikas=allTroikas
         .filter(t=>{
           const linkField=t.fields&&t.fields["fldNvIa8DQnoMU23e"];
-          return linkField&&Array.isArray(linkField)&&linkField.includes(mtgId);
+          const linked=linkField&&Array.isArray(linkField)&&linkField.includes(mtgId);
+          return linked;
         })
         .sort((a,b)=>((a.fields&&a.fields["fldnNtZFpyQElbIp2"])||0)-((b.fields&&b.fields["fldnNtZFpyQElbIp2"])||0))
         .map(t=>{
