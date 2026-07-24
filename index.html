@@ -621,15 +621,14 @@ async function startGenerate(){
   log("📄 Reading attendee information...");await sleep(600);
   log("🔍 Processing pairing requests...");await sleep(500);
   log("🧠 Analyzing member roles and building candidates...");await sleep(700);
-  const userContent=state.pdfBase64
-    ?[{type:"document",source:{type:"base64",media_type:"application/pdf",data:state.pdfBase64}},{type:"text",text:buildPrompt()}]
-    :[{type:"text",text:buildPrompt()}];
+  // Send text prompt only — PDF base64 causes server timeouts
+  const userContent=[{type:"text",text:buildPrompt()}];
   try{
     log("⚡ Generating optimal pairings with AI...");
     const res=await fetch("/.netlify/functions/generate",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,messages:[{role:"user",content:userContent}]})
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2000,messages:[{role:"user",content:userContent}]})
     });
     const data=await res.json();
     if(!res.ok){
@@ -660,8 +659,8 @@ async function startGenerate(){
       try{
         const fixRes=await fetch("/.netlify/functions/generate",{
           method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,messages:[
-            {role:"user",content:typeof userContent==="string"?userContent:userContent[userContent.length-1].text},
+          body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2000,messages:[
+            {role:"user",content:buildPrompt()},
             {role:"assistant",content:rawText},
             {role:"user",content:"Please reformat your response as pure JSON only — no markdown, no backticks, no explanation. Start with { and end with }. Keep all the same Troika pairings you just created."}
           ]})
@@ -712,8 +711,8 @@ ${state.requests || "None listed."}
 ADDITIONAL INSTRUCTIONS:
 ${state.instructions || "None."}
 
-${state.pdfBase64
-  ? "The attached PDF is the meeting photolist. Extract EVERY person listed in it as an attendee. Their name, title, company, and role/specialty are all in the PDF. Use all of them."
+${state.pdfName
+  ? `Photolist PDF "${state.pdfName}" was uploaded. Use all attendees listed in the Absences and Requests fields above, plus any NYC9 members you know. Pair EVERYONE present.`
   : "No PDF attached — pair the people described in the requests and instructions above."}
 
 PAIRING RULES:
