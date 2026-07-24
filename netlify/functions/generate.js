@@ -4,13 +4,9 @@ function makeRequest(hostname, path, method, headers, payload) {
   return new Promise((resolve) => {
     const opts = {
       hostname, path, method,
-      headers: {
-        "Content-Type": "application/json",
-        ...headers
-      }
+      headers: { "Content-Type": "application/json", ...headers }
     };
     if (payload) opts.headers["Content-Length"] = Buffer.byteLength(payload);
-
     const req = https.request(opts, (res) => {
       let d = "";
       res.on("data", c => { d += c; });
@@ -38,28 +34,31 @@ exports.handler = async function(event) {
   try { body = JSON.parse(event.body || "{}"); }
   catch(e) { return { statusCode: 400, headers: h, body: JSON.stringify({ error: "Bad request body" }) }; }
 
-  // Route: Airtable request
+  // ── Airtable requests ──────────────────────────────────────────────────────
   if (body.service === "airtable") {
-    const { atToken, atPath, atMethod, atBody } = body;
-    if (!atToken || !atPath) return { statusCode: 400, headers: h, body: JSON.stringify({ error: "Missing atToken or atPath" }) };
+    const atToken = process.env.AIRTABLE_TOKEN;
+    if (!atToken) return { statusCode: 500, headers: h, body: JSON.stringify({ error: "AIRTABLE_TOKEN not set in Netlify environment variables" }) };
+
+    const { atPath, atMethod, atBody } = body;
+    if (!atPath) return { statusCode: 400, headers: h, body: JSON.stringify({ error: "Missing atPath" }) };
+
+    const payload = atBody ? JSON.stringify(atBody) : null;
     const result = await makeRequest(
-      "api.airtable.com",
-      atPath,
-      atMethod || "GET",
+      "api.airtable.com", atPath, atMethod || "GET",
       { "Authorization": "Bearer " + atToken },
-      atBody ? JSON.stringify(atBody) : null
+      payload
     );
     return { statusCode: result.status, headers: h, body: result.body };
   }
 
-  // Route: Anthropic request
+  // ── Anthropic requests ─────────────────────────────────────────────────────
   const key = process.env.ANTHROPIC_API_KEY;
-  if (!key) return { statusCode: 500, headers: h, body: JSON.stringify({ error: "No API key configured" }) };
+  if (!key) return { statusCode: 500, headers: h, body: JSON.stringify({ error: "ANTHROPIC_API_KEY not set in Netlify environment variables" }) };
 
   if (body.messages) {
     body.messages = body.messages.map(msg => {
       if (Array.isArray(msg.content)) {
-        msg.content = msg.content.filter(block => block.type !== "document");
+        msg.content = msg.content.filter(b => b.type !== "document");
         if (msg.content.length === 1 && msg.content[0].type === "text") msg.content = msg.content[0].text;
       }
       return msg;
@@ -69,9 +68,7 @@ exports.handler = async function(event) {
 
   const payload = JSON.stringify(body);
   const result = await makeRequest(
-    "api.anthropic.com",
-    "/v1/messages",
-    "POST",
+    "api.anthropic.com", "/v1/messages", "POST",
     { "x-api-key": key, "anthropic-version": "2023-06-01" },
     payload
   );
