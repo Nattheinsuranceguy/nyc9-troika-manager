@@ -626,15 +626,15 @@ async function startGenerate(){
     :[{type:"text",text:buildPrompt()}];
   try{
     log("⚡ Generating optimal pairings with AI...");
-    const res=await fetch("https://nyc9-troika.nat-502.workers.dev",{
+    const res=await fetch("/.netlify/functions/generate",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
       body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:4000,messages:[{role:"user",content:userContent}]})
     });
     const data=await res.json();
-    if(!res.ok){ 
-      const errMsg = data.error?.message || data.error || `API error ${res.status}`;
-      throw new Error(typeof errMsg === "object" ? JSON.stringify(errMsg) : errMsg); 
+    if(!res.ok){
+      const errMsg=data.error?.message||data.error||`API error ${res.status}`;
+      throw new Error(typeof errMsg==="object"?JSON.stringify(errMsg):errMsg);
     }
     const rawText=data.content?.find(b=>b.type==="text")?.text||"";
     log("🔍 Parsing Troika groups...");await sleep(300);
