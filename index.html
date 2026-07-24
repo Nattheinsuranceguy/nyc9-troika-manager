@@ -775,9 +775,9 @@ async function saveAirtable(){
         "fldnRNdx6pQWMCeXu": state.troikas.reduce((s,t)=>s+t.members.length,0)
       }
     };
-    const mtgRes = await fetch(`https://api.airtable.com/v0/${AT_BASE}/tblrPf9FikIin3NIo`, {
-      method: "POST", headers: AT_HEADERS,
-      body: JSON.stringify(mtgPayload)
+    const mtgRes = await fetch("/.netlify/functions/generate", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({service:"airtable",atToken:AT_TOKEN,atPath:"/v0/"+AT_BASE+"/tblrPf9FikIin3NIo",atMethod:"POST",atBody:mtgPayload})
     });
     const mtgData = await mtgRes.json();
     if(!mtgRes.ok) throw new Error(mtgData.error?.message || "Failed to create meeting");
@@ -804,9 +804,9 @@ async function saveAirtable(){
     // Batch in groups of 10
     for(let i=0; i<troikaRecords.length; i+=10){
       const batch = troikaRecords.slice(i, i+10);
-      const tRes = await fetch(`https://api.airtable.com/v0/${AT_BASE}/tblMkfH1s03X6yB2L`, {
-        method: "POST", headers: AT_HEADERS,
-        body: JSON.stringify({ records: batch })
+      const tRes = await fetch("/.netlify/functions/generate", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({service:"airtable",atToken:AT_TOKEN,atPath:"/v0/"+AT_BASE+"/tblMkfH1s03X6yB2L",atMethod:"POST",atBody:{records:batch}})
       });
       const tData = await tRes.json();
       if(!tRes.ok) throw new Error(tData.error?.message || "Failed to create troikas");
@@ -845,57 +845,40 @@ const AT_BASE_R  = "appYV9wqR4kEnfmJx";
 const AT_HDR_R   = {"Authorization":"Bearer "+AT_TOKEN_R,"Content-Type":"application/json"};
 
 async function loadFromAirtable(){
-  const dbg = document.getElementById("at-debug");
-  const log = (m) => { console.log(m); if(dbg) dbg.innerHTML += m + "<br>"; };
+  const AT_TOK = "pat2Ui02yOlYVMKXp.0ce63c23c13e24f0798bbcea89dbb344c7a115f3a90b498408efa01bd39a2827";
+  const AT_B   = "appYV9wqR4kEnfmJx";
+
+  async function atGet(path){
+    const res = await fetch("/.netlify/functions/generate", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({service:"airtable",atToken:AT_TOK,atPath:path,atMethod:"GET"})
+    });
+    return res.json();
+  }
+
   try{
-    log("Connecting to Airtable...");
-    // 1. Load all meetings
-    const mtgRes = await fetch(`https://api.airtable.com/v0/${AT_BASE_R}/tblrPf9FikIin3NIo?sort%5B0%5D%5Bfield%5D=fldns3bTXIg9yGrQl&sort%5B0%5D%5Bdirection%5D=asc`,
-      {headers:AT_HDR_R});
-    const mtgData = await mtgRes.json();
-    log("Meetings response: " + (mtgData.records ? mtgData.records.length + " records" : "ERROR: " + JSON.stringify(mtgData).substring(0,100)));
-    if(!mtgData.records) throw new Error("Could not load meetings: " + JSON.stringify(mtgData));
+    const mtgData = await atGet("/v0/"+AT_B+"/tblrPf9FikIin3NIo?sort%5B0%5D%5Bfield%5D=fldns3bTXIg9yGrQl&sort%5B0%5D%5Bdirection%5D=asc");
+    if(!mtgData.records) throw new Error("No meetings: "+JSON.stringify(mtgData).substring(0,100));
 
-    // 2. Load all troikas
-    const tRes = await fetch(`https://api.airtable.com/v0/${AT_BASE_R}/tblMkfH1s03X6yB2L?pageSize=100`,
-      {headers:AT_HDR_R});
-    const tData = await tRes.json();
-    log("Troikas response: " + (tData.records ? tData.records.length + " records" : "ERROR: " + JSON.stringify(tData).substring(0,100)));
-    if(!tData.records) throw new Error("Could not load troikas: " + JSON.stringify(tData));
+    const tData = await atGet("/v0/"+AT_B+"/tblMkfH1s03X6yB2L?pageSize=100");
+    if(!tData.records) throw new Error("No troikas: "+JSON.stringify(tData).substring(0,100));
 
-    // 3. Build MEETINGS_DB from Airtable data
     const liveMeetings = mtgData.records.map(rec=>{
-      const f = rec.fields;
-      const mtgId = rec.id;
-
-      // Find troikas for this meeting
-      const mtgTroikas = tData.records
-        .filter(t => t.fields["fldNvIa8DQnoMU23e"] && t.fields["fldNvIa8DQnoMU23e"].includes(mtgId))
+      const f=rec.fields, mtgId=rec.id;
+      const mtgTroikas=tData.records
+        .filter(t=>t.fields["fldNvIa8DQnoMU23e"]&&t.fields["fldNvIa8DQnoMU23e"].includes(mtgId))
         .sort((a,b)=>(a.fields["fldnNtZFpyQElbIp2"]||0)-(b.fields["fldnNtZFpyQElbIp2"]||0))
         .map(t=>{
-          const tf = t.fields;
-          const members = [tf["fldF9EZu92qN0NSoZ"],tf["fldnn1JUEkhR1DtgL"],tf["fldtKHQYyymJ8jKR6"],tf["fldhve8M50ehMe5hS"]].filter(Boolean);
-          return {
-            number: tf["fldnNtZFpyQElbIp2"] || 1,
-            type: tf["fldywATjQsxRNDP0I"] || "Role-based",
-            note: tf["fldA6BEWaNfWoyjPF"] || "",
-            members: members
-          };
+          const tf=t.fields;
+          const members=[tf["fldF9EZu92qN0NSoZ"],tf["fldnn1JUEkhR1DtgL"],tf["fldtKHQYyymJ8jKR6"],tf["fldhve8M50ehMe5hS"]].filter(Boolean);
+          return {number:tf["fldnNtZFpyQElbIp2"]||1,type:tf["fldywATjQsxRNDP0I"]||"Role-based",note:tf["fldA6BEWaNfWoyjPF"]||"",members};
         });
-
-      return {
-        id: mtgId,
-        name: f["fldg5G98g7mcpRT4Y"] || "Meeting",
-        date: f["fldns3bTXIg9yGrQl"] || "",
-        present: f["fldnRNdx6pQWMCeXu"] || 0,
-        absent: [],
-        troikas: mtgTroikas
-      };
+      return {id:mtgId,name:f["fldg5G98g7mcpRT4Y"]||"Meeting",date:f["fldns3bTXIg9yGrQl"]||"",present:f["fldnRNdx6pQWMCeXu"]||0,absent:[],troikas:mtgTroikas};
     });
-
+    console.log("Loaded",liveMeetings.length,"meetings from Airtable");
     return liveMeetings;
-  } catch(err){
-    console.error("Airtable load error:", err.message, err);
+  }catch(err){
+    console.error("Airtable error:",err.message);
     return null;
   }
 }
