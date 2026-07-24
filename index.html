@@ -849,36 +849,84 @@ async function loadFromAirtable(){
   const AT_B   = "appYV9wqR4kEnfmJx";
 
   async function atGet(path){
-    const res = await fetch("/.netlify/functions/generate", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({service:"airtable",atToken:AT_TOK,atPath:path,atMethod:"GET"})
-    });
-    return res.json();
+    try{
+      const res = await fetch("/.netlify/functions/generate", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({service:"airtable",atToken:AT_TOK,atPath:path,atMethod:"GET"})
+      });
+      if(!res.ok) throw new Error("HTTP "+res.status);
+      return res.json();
+    }catch(e){
+      console.error("atGet failed for",path,":",e.message);
+      return null;
+    }
   }
 
   try{
-    const mtgData = await atGet("/v0/"+AT_B+"/tblrPf9FikIin3NIo?sort%5B0%5D%5Bfield%5D=fldns3bTXIg9yGrQl&sort%5B0%5D%5Bdirection%5D=asc");
-    if(!mtgData.records) throw new Error("No meetings: "+JSON.stringify(mtgData).substring(0,100));
+    // Use field names instead of IDs for sorting (more reliable)
+    const mtgData = await atGet("/v0/"+AT_B+"/tblrPf9FikIin3NIo?sort[0][field]=Date&sort[0][direction]=asc");
+    if(!mtgData||!mtgData.records){
+      console.error("Meetings fetch failed:",JSON.stringify(mtgData).substring(0,200));
+      return null;
+    }
+    console.log("Meetings loaded:",mtgData.records.length);
 
-    const tData = await atGet("/v0/"+AT_B+"/tblMkfH1s03X6yB2L?pageSize=100");
-    if(!tData.records) throw new Error("No troikas: "+JSON.stringify(tData).substring(0,100));
+    // Load troikas in pages of 100
+    let allTroikas=[], offset=null;
+    do{
+      const url="/v0/"+AT_B+"/tblMkfH1s03X6yB2L?pageSize=100"+(offset?"&offset="+offset:"");
+      const tPage = await atGet(url);
+      if(!tPage||!tPage.records) break;
+      allTroikas=allTroikas.concat(tPage.records);
+      offset=tPage.offset||null;
+    }while(offset);
+    console.log("Troikas loaded:",allTroikas.length);
 
     const liveMeetings = mtgData.records.map(rec=>{
-      const f=rec.fields, mtgId=rec.id;
-      const mtgTroikas=tData.records
-        .filter(t=>t.fields["fldNvIa8DQnoMU23e"]&&t.fields["fldNvIa8DQnoMU23e"].includes(mtgId))
-        .sort((a,b)=>(a.fields["fldnNtZFpyQElbIp2"]||0)-(b.fields["fldnNtZFpyQElbIp2"]||0))
+      const f=rec.fields||{}, mtgId=rec.id;
+
+      // Match troikas to this meeting via the Meeting link field
+      const mtgTroikas=allTroikas
+        .filter(t=>{
+          const linkField=t.fields&&t.fields["fldNvIa8DQnoMU23e"];
+          return linkField&&Array.isArray(linkField)&&linkField.includes(mtgId);
+        })
+        .sort((a,b)=>((a.fields&&a.fields["fldnNtZFpyQElbIp2"])||0)-((b.fields&&b.fields["fldnNtZFpyQElbIp2"])||0))
         .map(t=>{
-          const tf=t.fields;
-          const members=[tf["fldF9EZu92qN0NSoZ"],tf["fldnn1JUEkhR1DtgL"],tf["fldtKHQYyymJ8jKR6"],tf["fldhve8M50ehMe5hS"]].filter(Boolean);
-          return {number:tf["fldnNtZFpyQElbIp2"]||1,type:tf["fldywATjQsxRNDP0I"]||"Role-based",note:tf["fldA6BEWaNfWoyjPF"]||"",members};
+          const tf=t.fields||{};
+          const members=[
+            tf["fldF9EZu92qN0NSoZ"],
+            tf["fldnn1JUEkhR1DtgL"],
+            tf["fldtKHQYyymJ8jKR6"],
+            tf["fldhve8M50ehMe5hS"]
+          ].filter(Boolean);
+          return {
+            number:tf["fldnNtZFpyQElbIp2"]||1,
+            type:tf["fldywATjQsxRNDP0I"]||"Role-based",
+            note:tf["fldA6BEWaNfWoyjPF"]||"",
+            members
+          };
         });
-      return {id:mtgId,name:f["fldg5G98g7mcpRT4Y"]||"Meeting",date:f["fldns3bTXIg9yGrQl"]||"",present:f["fldnRNdx6pQWMCeXu"]||0,absent:[],troikas:mtgTroikas};
-    });
-    console.log("Loaded",liveMeetings.length,"meetings from Airtable");
+
+      // Get name and date — try both field ID and field name
+      const name = f["fldg5G98g7mcpRT4Y"]||f["Meeting Name"]||"Meeting";
+      const date = f["fldns3bTXIg9yGrQl"]||f["Date"]||"";
+      const present = f["fldnRNdx6pQWMCeXu"]||f["Total Present"]||0;
+
+      return {
+        id:mtgId,
+        name,date,present,
+        absent:[],
+        troikas:mtgTroikas
+      };
+    }).filter(m=>m.name!=="Meeting"||m.troikas.length>0); // filter empty unnamed meetings
+
+    console.log("Live meetings built:",liveMeetings.length,"with troikas");
+    liveMeetings.forEach(m=>console.log(" -",m.name,m.date,"troikas:",m.troikas.length));
     return liveMeetings;
+
   }catch(err){
-    console.error("Airtable error:",err.message);
+    console.error("loadFromAirtable error:",err.message);
     return null;
   }
 }
