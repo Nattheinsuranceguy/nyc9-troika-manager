@@ -224,6 +224,7 @@ textarea.inp{resize:vertical;min-height:80px}
 // ─────────────────────────────────────────────────────────────────────────────
 const COLORS=["#E8F0FE","#E6F4EA","#FEF7E0","#FCE8E6","#F3E8FD","#E8F5E9","#FFF3E0","#E0F7FA","#EDE7F6","#F9E4F0"];
 
+let MEETINGS_DB_LIVE=[];
 const MEETINGS_DB=[
   {
     id:"apr2026",name:"NYC9 – April 2026",date:"2026-04-23",present:24,
@@ -363,7 +364,7 @@ function switchTab(tab){
   document.getElementById("pane-history").style.display=tab==="history"?"block":"none";
   document.querySelectorAll(".nav-tab").forEach(t=>t.classList.remove("active"));
   document.getElementById("tab-"+tab).classList.add("active");
-  if(tab==="history")renderHistory();
+  if(tab==="history")renderHistory().catch(console.error);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -753,7 +754,7 @@ function exportText(){
 
 
 async function saveAirtable(){
-  const AT_TOKEN = "pateJMngmGbvx3ptN.b69a833ac53e34f70f0a46e836287a68e721954a2c9ba2e916f9d6dcf8a5ba93";
+  const AT_TOKEN = "patoLqtsP4GFMmIBd.60acea3e7c8e4b78e9fe7d1a451c086d56486bd45f30e921152d43eb9bfd5a56";
   const AT_BASE  = "appYV9wqR4kEnfmJx";
   const AT_HEADERS = {
     "Content-Type": "application/json",
@@ -835,16 +836,92 @@ function renderBuild(){renderStepBar();renderHdr();
 let histFilter={search:"",status:"All",meeting:"All"};
 let expandedMtg={};
 
-function renderHistory(){
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AIRTABLE LIVE LOADER
+// ─────────────────────────────────────────────────────────────────────────────
+const AT_TOKEN_R = "patoLqtsP4GFMmIBd.60acea3e7c8e4b78e9fe7d1a451c086d56486bd45f30e921152d43eb9bfd5a56";
+const AT_BASE_R  = "appYV9wqR4kEnfmJx";
+const AT_HDR_R   = {"Authorization":"Bearer "+AT_TOKEN_R,"Content-Type":"application/json"};
+
+async function loadFromAirtable(){
+  try{
+    // 1. Load all meetings
+    const mtgRes = await fetch(`https://api.airtable.com/v0/${AT_BASE_R}/tblrPf9FikIin3NIo?sort%5B0%5D%5Bfield%5D=fldns3bTXIg9yGrQl&sort%5B0%5D%5Bdirection%5D=asc`,
+      {headers:AT_HDR_R});
+    const mtgData = await mtgRes.json();
+    if(!mtgData.records) throw new Error("Could not load meetings");
+
+    // 2. Load all troikas
+    const tRes = await fetch(`https://api.airtable.com/v0/${AT_BASE_R}/tblMkfH1s03X6yB2L?pageSize=100`,
+      {headers:AT_HDR_R});
+    const tData = await tRes.json();
+    if(!tData.records) throw new Error("Could not load troikas");
+
+    // 3. Build MEETINGS_DB from Airtable data
+    const liveMeetings = mtgData.records.map(rec=>{
+      const f = rec.fields;
+      const mtgId = rec.id;
+
+      // Find troikas for this meeting
+      const mtgTroikas = tData.records
+        .filter(t => t.fields["fldNvIa8DQnoMU23e"] && t.fields["fldNvIa8DQnoMU23e"].includes(mtgId))
+        .sort((a,b)=>(a.fields["fldnNtZFpyQElbIp2"]||0)-(b.fields["fldnNtZFpyQElbIp2"]||0))
+        .map(t=>{
+          const tf = t.fields;
+          const members = [tf["fldF9EZu92qN0NSoZ"],tf["fldnn1JUEkhR1DtgL"],tf["fldtKHQYyymJ8jKR6"],tf["fldhve8M50ehMe5hS"]].filter(Boolean);
+          return {
+            number: tf["fldnNtZFpyQElbIp2"] || 1,
+            type: tf["fldywATjQsxRNDP0I"] || "Role-based",
+            note: tf["fldA6BEWaNfWoyjPF"] || "",
+            members: members
+          };
+        });
+
+      return {
+        id: mtgId,
+        name: f["fldg5G98g7mcpRT4Y"] || "Meeting",
+        date: f["fldns3bTXIg9yGrQl"] || "",
+        present: f["fldnRNdx6pQWMCeXu"] || 0,
+        absent: [],
+        troikas: mtgTroikas
+      };
+    });
+
+    return liveMeetings;
+  } catch(err){
+    console.error("Airtable load error:", err);
+    return null;
+  }
+}
+
+async function renderHistory(){
+  // Show loading state
+  r("history-content",`<div style="text-align:center;padding:60px;color:#718096">
+    <div style="font-size:36px;margin-bottom:12px">⏳</div>
+    <div style="font-weight:700;font-size:16px;color:#1F3864">Loading from Airtable...</div>
+    <div style="font-size:12px;margin-top:6px">Fetching your meeting history</div>
+  </div>`);
+
+  // Try to load live data from Airtable
+  const liveData = await loadFromAirtable();
+  if(liveData && liveData.length > 0){
+    // Merge live data with hardcoded data, preferring live
+    // Use live data as primary source
+    MEETINGS_DB_LIVE = liveData;
+  } else {
+    MEETINGS_DB_LIVE = MEETINGS_DB; // fallback to hardcoded
+  }
+
   // Compute derived data
-  const allMtgNames=MEETINGS_DB.map(m=>m.name);
+  const allMtgNames=MEETINGS_DB_LIVE.map(m=>m.name);
   const pairingCounts={}; // name -> { name2 -> count }
   const attendanceCounts={}; // name -> {met:[], absent:[]}
   MEMBERS_DB.forEach(m=>{
     pairingCounts[m.name]={};
     attendanceCounts[m.name]={present:[],absent:[]};
   });
-  MEETINGS_DB.forEach(mtg=>{
+  MEETINGS_DB_LIVE.forEach(mtg=>{
     (mtg.absent||[]).forEach(n=>{if(attendanceCounts[n])attendanceCounts[n].absent.push(mtg.id);});
     mtg.troikas.forEach(t=>{
       t.members.forEach(n=>{if(attendanceCounts[n])attendanceCounts[n].present.push(mtg.id);});
@@ -862,8 +939,8 @@ function renderHistory(){
 
   // Stats
   const totalMembers=MEMBERS_DB.length;
-  const totalMeetings=MEETINGS_DB.length;
-  const totalTroikas=MEETINGS_DB.reduce((s,m)=>s+m.troikas.length,0);
+  const totalMeetings=MEETINGS_DB_LIVE.length;
+  const totalTroikas=MEETINGS_DB_LIVE.reduce((s,m)=>s+m.troikas.length,0);
   const totalPairings=Object.values(pairingCounts).reduce((s,obj)=>s+Object.values(obj).reduce((a,b)=>a+b,0),0)/2;
   const repeatPairings=Object.entries(pairingCounts).reduce((s,[a,obj])=>
     s+Object.entries(obj).filter(([b,c])=>c>1&&a<b).length,0);
@@ -897,7 +974,7 @@ function renderHistory(){
     <!-- Meeting timeline -->
     <div class="timeline">
       <div class="tl-header">📅 Meeting History</div>
-      ${MEETINGS_DB.slice().reverse().map(mtg=>`
+      ${MEETINGS_DB_LIVE.slice().reverse().map(mtg=>`
         <div class="mtg-card">
           <div class="mtg-head" onclick="toggleMtg('${mtg.id}')">
             <div class="mtg-head-left">
@@ -955,7 +1032,7 @@ function renderHistory(){
               <th>Role / Specialty</th>
               <th>Status</th>
               <th>Troikas</th>
-              ${MEETINGS_DB.map(m=>`<th style="text-align:center">${fmtShort(m.date)}</th>`).join("")}
+              ${MEETINGS_DB_LIVE.map(m=>`<th style="text-align:center">${fmtShort(m.date)}</th>`).join("")}
             </tr>
           </thead>
           <tbody>
@@ -970,7 +1047,7 @@ function renderHistory(){
                 <td style="font-size:11px;color:#718096">${escHtml(m.role)}</td>
                 <td><span class="status-pill ${pillClass}">${m.status}</span></td>
                 <td style="text-align:center;font-weight:700;color:#1F3864">${troikaCount}</td>
-                ${MEETINGS_DB.map(mtg=>{
+                ${MEETINGS_DB_LIVE.map(mtg=>{
                   const wasPresent=attendanceCounts[m.name]?.present.includes(mtg.id);
                   const wasAbsent=(mtg.absent||[]).includes(m.name);
                   if(wasPresent)return`<td style="text-align:center"><span class="attend-dot dot-yes" title="Attended"></span></td>`;
@@ -1036,8 +1113,9 @@ function histSearch(val){histFilter.search=val;renderHistory();}
 function histStatusFilter(val){histFilter.status=val;renderHistory();}
 
 function exportHistory(){
+  const DB=MEETINGS_DB_LIVE.length?MEETINGS_DB_LIVE:MEETINGS_DB;
   let csv="Name,Title,Company,Role,Email,Status,Troikas Attended";
-  MEETINGS_DB.forEach(m=>{csv+=`,${m.name} (Present)`;});
+  DB.forEach(m=>{csv+=`,${m.name} (Present)`;});
   csv+="\n";
   MEMBERS_DB.forEach(m=>{
     const pres=MEETINGS_DB.map(mtg=>
