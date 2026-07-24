@@ -1,78 +1,72 @@
 const https = require("https");
 
-exports.handler = async function(event, context) {
-  const corsHeaders = {
+exports.handler = async function(event) {
+  const h = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Content-Type": "application/json"
   };
 
-  if (event.httpMethod === "OPTIONS") {
-    return { statusCode: 200, headers: corsHeaders, body: "" };
-  }
+  if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers: h, body: "" };
+  if (event.httpMethod !== "POST") return { statusCode: 405, headers: h, body: JSON.stringify({ error: "Method not allowed" }) };
 
-  if (event.httpMethod !== "POST") {
-    return { statusCode: 405, headers: corsHeaders, body: JSON.stringify({ error: "Method Not Allowed" }) };
-  }
-
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return {
-      statusCode: 500,
-      headers: corsHeaders,
-      body: JSON.stringify({ error: "Missing ANTHROPIC_API_KEY" })
-    };
-  }
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return { statusCode: 500, headers: h, body: JSON.stringify({ error: "No API key configured" }) };
 
   let body;
   try {
     body = JSON.parse(event.body || "{}");
   } catch(e) {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: "Bad request body" }) };
+    return { statusCode: 400, headers: h, body: JSON.stringify({ error: "Bad request body" }) };
   }
+
+  // Strip any PDF/document content to keep request small and fast
+  // The PDF text should already be extracted client-side
+  if (body.messages) {
+    body.messages = body.messages.map(msg => {
+      if (Array.isArray(msg.content)) {
+        msg.content = msg.content.filter(block => block.type !== "document");
+        // If only one text block remains, simplify to string
+        if (msg.content.length === 1 && msg.content[0].type === "text") {
+          msg.content = msg.content[0].text;
+        }
+      }
+      return msg;
+    });
+  }
+
+  // Keep max_tokens reasonable
+  body.max_tokens = Math.min(body.max_tokens || 2000, 2000);
 
   return new Promise((resolve) => {
     const payload = JSON.stringify(body);
-    const options = {
+    const req = https.request({
       hostname: "api.anthropic.com",
       path: "/v1/messages",
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Content-Length": Buffer.byteLength(payload),
-        "x-api-key": apiKey,
+        "x-api-key": key,
         "anthropic-version": "2023-06-01"
       }
-    };
-
-    const req = https.request(options, (res) => {
-      let data = "";
-      res.on("data", chunk => { data += chunk; });
+    }, (res) => {
+      let d = "";
+      res.on("data", c => { d += c; });
       res.on("end", () => {
-        try {
-          const parsed = JSON.parse(data);
-          resolve({
-            statusCode: res.statusCode,
-            headers: corsHeaders,
-            body: JSON.stringify(parsed)
-          });
-        } catch(e) {
-          resolve({
-            statusCode: 500,
-            headers: corsHeaders,
-            body: JSON.stringify({ error: "Non-JSON response: " + data.substring(0, 200) })
-          });
-        }
+        resolve({ statusCode: res.statusCode, headers: h, body: d });
       });
     });
 
     req.on("error", (e) => {
-      resolve({
-        statusCode: 500,
-        headers: corsHeaders,
-        body: JSON.stringify({ error: "Request failed: " + e.message })
-      });
+      resolve({ statusCode: 500, headers: h, body: JSON.stringify({ error: e.message }) });
+    });
+
+    // 25 second timeout
+    req.setTimeout(25000, () => {
+      req.destroy();
+      resolve({ statusCode: 504, headers: h, body: JSON.stringify({ error: "Request timed out — try again without PDF or with fewer attendees" }) });
     });
 
     req.write(payload);
