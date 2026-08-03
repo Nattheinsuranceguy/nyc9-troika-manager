@@ -629,7 +629,7 @@ async function startGenerate(){
     const res=await fetch("/.netlify/functions/generate",{
       method:"POST",
       headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2000,messages:[{role:"user",content:userContent}]})
+      body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,messages:[{role:"user",content:userContent}]})
     });
     const data=await res.json();
     if(!res.ok){
@@ -660,7 +660,7 @@ async function startGenerate(){
       try{
         const fixRes=await fetch("/.netlify/functions/generate",{
           method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:2000,messages:[
+          body:JSON.stringify({model:"claude-sonnet-4-6",max_tokens:1500,messages:[
             {role:"user",content:buildPrompt()},
             {role:"assistant",content:rawText},
             {role:"user",content:"Please reformat your response as pure JSON only — no markdown, no backticks, no explanation. Start with { and end with }. Keep all the same Troika pairings you just created."}
@@ -716,20 +716,11 @@ ${state.pdfName
   ? `Photolist PDF "${state.pdfName}" was uploaded. Use all attendees listed in the Absences and Requests fields above, plus any NYC9 members you know. Pair EVERYONE present.`
   : "No PDF attached — pair the people described in the requests and instructions above."}
 
-PAIRING RULES:
-1. Natale Scopelliti is NEVER included in any Troika.
-2. Honor all specific pairing requests first.
-3. Pair remaining attendees by complementary roles — avoid grouping people who directly compete (e.g. two mortgage brokers).
-4. Groups of 3 people preferred. A Quad (4 people) is acceptable when the total number of attendees doesn't divide evenly by 3.
-5. Every attendee must appear in exactly ONE Troika. Nobody gets left out.
-6. Do not repeat pairings from prior months if you can avoid it.
+RULES: 1) Never include Natale Scopelliti. 2) Honor requests first. 3) Pair by complementary roles. 4) Groups of 3 preferred, Quad (4) if needed. 5) Everyone in exactly one Troika.
 
-IMPORTANT OUTPUT FORMAT:
-- Output ONLY a raw JSON object. No markdown. No backticks. No explanation before or after.
-- Your entire response must start with the character { and end with the character }
-- Structure: {"troikas":[{"number":1,"type":"Requested","note":"brief reason","why":"why it works","members":[{"name":"Full Name","role":"Role / Specialty","company":"Company"},{"name":"Full Name","role":"Role / Specialty","company":"Company"},{"name":"Full Name","role":"Role / Specialty","company":"Company"}]}],"unassigned":[]}
-- "type" must be one of: "Requested", "Role-based", or "Quad"
-- Begin your response with { immediately:`;
+Output ONLY raw JSON starting with { and ending with }. No markdown. No explanation.
+Format: {"troikas":[{"number":1,"type":"Role-based","note":"reason","why":"why","members":[{"name":"Name","role":"Role","company":"Co"},{"name":"Name","role":"Role","company":"Co"},{"name":"Name","role":"Role","company":"Co"}]}],"unassigned":[]}
+Begin with { now:`;
 }
 
 function fallbackTroikas(){
