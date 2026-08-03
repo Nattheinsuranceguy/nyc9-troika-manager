@@ -886,10 +886,30 @@ async function renderHistory(){
 
   // Stats
   if(MEETINGS_DB_LIVE.length === 0){
+    // Run a quick diagnostic
+    let diagMsg = "Unknown error";
+    try {
+      const testRes = await fetch("/.netlify/functions/generate", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({service:"airtable", atPath:"/v0/appYV9wqR4kEnfmJx/tblrPf9FikIin3NIo?maxRecords=1", atMethod:"GET"})
+      });
+      const testData = await testRes.json();
+      if(testRes.ok && testData.records) {
+        diagMsg = "Function OK but no meetings matched. Records found: " + testData.records.length;
+      } else if(testData.error) {
+        diagMsg = "Error: " + testData.error;
+      } else {
+        diagMsg = "HTTP " + testRes.status + ": " + JSON.stringify(testData).substring(0,150);
+      }
+    } catch(e) {
+      diagMsg = "Fetch error: " + e.message;
+    }
     r("history-content",`<div style="text-align:center;padding:60px;color:#718096">
       <div style="font-size:36px;margin-bottom:12px">⚠️</div>
       <div style="font-weight:700;font-size:16px;color:#1F3864">Could not load meeting history</div>
-      <div style="font-size:12px;margin-top:8px;color:#a0aec0">Check the browser console (F12) for error details.<br>Make sure your Airtable token is valid and the Netlify function is running.</div>
+      <div style="font-size:13px;margin-top:12px;padding:12px;background:#FEF3C7;border-radius:8px;color:#92400E;text-align:left;max-width:500px;margin-left:auto;margin-right:auto">
+        <strong>Diagnostic:</strong> ${diagMsg}
+      </div>
     </div>`);
     return;
   }
