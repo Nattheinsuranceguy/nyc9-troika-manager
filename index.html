@@ -831,8 +831,17 @@ async function loadFromAirtable(){
     const live=mtgData.records.map(rec=>{
       const f=rec.fields||{};
       let troikas=[];
-      try{ troikas=(JSON.parse(f["fld5EXdNQUilAyMcG"||"[]"])||[]).map(t=>({number:t.number,type:t.type||"Role-based",note:t.note||"",members:(t.members||[]).map(m=>m.name||m)})); }
-      catch(e){ console.warn("Parse error",e.message); }
+      try{
+        const rawData = f["fld5EXdNQUilAyMcG"];
+        if(rawData && rawData !== "undefined" && rawData.trim() !== ""){
+          troikas=(JSON.parse(rawData)||[]).map(t=>({
+            number:t.number,
+            type:t.type||"Role-based",
+            note:t.note||"",
+            members:(t.members||[]).map(m=>m.name||m)
+          }));
+        }
+      }catch(e){ console.warn("Parse error for",f["fldg5G98g7mcpRT4Y"],":",e.message,f["fld5EXdNQUilAyMcG"]?.substring(0,50)); }
       return {id:rec.id,name:f["fldg5G98g7mcpRT4Y"]||"",date:f["fldns3bTXIg9yGrQl"]||"",present:f["fldnRNdx6pQWMCeXu"]||0,absent:[],troikas};
     }).filter(m=>m.name);
     console.log("Built:",live.map(m=>m.name+":"+m.troikas.length).join(", "));
@@ -885,7 +894,7 @@ async function renderHistory(){
   });
 
   // Stats
-  if(MEETINGS_DB_LIVE.length === 0){
+  if(!MEETINGS_DB_LIVE || MEETINGS_DB_LIVE.length === 0){
     // Run a quick diagnostic
     let diagMsg = "Unknown error";
     try {
