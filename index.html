@@ -778,35 +778,18 @@ async function saveAirtable(){
     if(!mtgRes.ok) throw new Error(mtgData.error?.message || "Failed to create meeting");
     const mtgRecordId = mtgData.id;
 
-    // 2. Create Troika records (batch of 10 max)
-    const troikaRecords = state.troikas.map((t,i) => {
-      const mtgPrefix = (state.meetingName||"MTG").replace(/[^A-Za-z0-9]/g,"").substring(0,6).toUpperCase();
-      const fields = {
-        "fld5I6VqdPUQwd0Fg": `${mtgPrefix}-T${t.number}`,
-        "fldnNtZFpyQElbIp2": t.number,
-        "fldywATjQsxRNDP0I": t.members.length === 4 ? "Quad" : (t.type || "Role-based"),
-        "fldA6BEWaNfWoyjPF": t.note || "",
-        "fldv4BmQUGkCzItBe":  t.why  || "",
-        "fldNvIa8DQnoMU23e": [mtgRecordId],
-        "fldF9EZu92qN0NSoZ": t.members[0]?.name || "",
-        "fldnn1JUEkhR1DtgL": t.members[1]?.name || "",
-        "fldtKHQYyymJ8jKR6": t.members[2]?.name || "",
-      };
-      if(t.members[3]) fields["fldhve8M50ehMe5hS"] = t.members[3].name;
-      return { fields };
+    // 2. Save all Troika data as JSON directly on the Meeting record
+    const troikaJSON = JSON.stringify(state.troikas.map(t=>({
+      number:t.number, type:t.members.length===4?"Quad":(t.type||"Role-based"),
+      note:t.note||"", why:t.why||"",
+      members:t.members.map(m=>({name:m.name||m,role:m.role||"",company:m.company||""}))
+    })));
+    const patchRes = await fetch("/.netlify/functions/generate",{
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({service:"airtable",atPath:"/v0/"+AT_BASE+"/tblrPf9FikIin3NIo/"+mtgRecordId,
+        atMethod:"PATCH",atBody:{fields:{"fld5EXdNQUilAyMcG":troikaJSON,"fldJTKtFhda5xEynw":state.troikas.length}}})
     });
-
-    // Batch in groups of 10
-    for(let i=0; i<troikaRecords.length; i+=10){
-      const batch = troikaRecords.slice(i, i+10);
-      const tRes = await fetch("/.netlify/functions/generate", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({service:"airtable",atPath:"/v0/"+AT_BASE+"/tblMkfH1s03X6yB2L",atMethod:"POST",atBody:{records:batch}})
-      });
-      const tData = await tRes.json();
-      if(!tRes.ok) throw new Error(tData.error?.message || "Failed to create troikas");
-    }
-
+    if(!patchRes.ok){ const e=await patchRes.json(); throw new Error(e.error||"Failed to save troikas"); }
     state.saved = true;
     [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=true; b.textContent="✓ Saved to Airtable"; b.style.background="#38A169"; b.style.color="#fff"; } });
     alert(`✅ Saved to Airtable!\n\n${state.troikas.length} Troikas from "${state.meetingName||"Meeting"}" have been added to your NYC9 Troika Manager base.`);
@@ -840,111 +823,30 @@ const AT_BASE_R  = "appYV9wqR4kEnfmJx";
 const AT_HDR_R   = {"Authorization":"Bearer "+AT_TOKEN_R,"Content-Type":"application/json"};
 
 async function loadFromAirtable(){
-  const AT_B   = "appYV9wqR4kEnfmJx";
-
+  const AT_B = "appYV9wqR4kEnfmJx";
   async function atGet(path){
     try{
-      const res = await fetch("/.netlify/functions/generate", {
-        method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({service:"airtable",atPath:path,atMethod:"GET"})
-      });
+      const res = await fetch("/.netlify/functions/generate",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({service:"airtable",atPath:path,atMethod:"GET"})});
       if(!res.ok) throw new Error("HTTP "+res.status);
       return res.json();
-    }catch(e){
-      console.error("atGet failed for",path,":",e.message);
-      return null;
-    }
+    }catch(e){ console.error("atGet:",e.message); return null; }
   }
-
   try{
-    // Use field names instead of IDs for sorting (more reliable)
-    const mtgData = await atGet("/v0/"+AT_B+"/tblrPf9FikIin3NIo?sort[0][field]=Date&sort[0][direction]=asc");
-    if(!mtgData||!mtgData.records){
-      console.error("Meetings fetch failed:",JSON.stringify(mtgData).substring(0,200));
-      return null;
-    }
-    console.log("Meetings loaded:",mtgData.records.length);
-
-    // Load troikas in pages of 100 — explicitly request all fields including Meeting link
-    let allTroikas=[], offset=null;
-    do{
-      const fields="&fields[]=fldNvIa8DQnoMU23e&fields[]=fldnNtZFpyQElbIp2&fields[]=fldywATjQsxRNDP0I&fields[]=fldA6BEWaNfWoyjPF&fields[]=fldF9EZu92qN0NSoZ&fields[]=fldnn1JUEkhR1DtgL&fields[]=fldtKHQYyymJ8jKR6&fields[]=fldhve8M50ehMe5hS&fields[]=fld5I6VqdPUQwd0Fg&fields[]=fld1OS9k9TM9nJ6cF";
-      const url="/v0/"+AT_B+"/tblMkfH1s03X6yB2L?pageSize=100"+fields+(offset?"&offset="+offset:"");
-      const tPage = await atGet(url);
-      if(!tPage||!tPage.records) break;
-      allTroikas=allTroikas.concat(tPage.records);
-      offset=tPage.offset||null;
-    }while(offset);
-    console.log("Troikas loaded:",allTroikas.length);
-
-    const liveMeetings = mtgData.records.map(rec=>{
-      const f=rec.fields||{}, mtgId=rec.id;
-
-      // Match troikas via Meeting link field OR via Troika ID prefix
-      // Troika IDs are stored as e.g. "APR2026-T1", "NYC9MAY-T1" etc
-      const mtgName = (f["fldg5G98g7mcpRT4Y"]||f["Meeting Name"]||"").toUpperCase().trim().replace(/[–—-]/g,"-");
-      const mtgDate = (f["fldns3bTXIg9yGrQl"]||f["Date"]||"");
-      // Build prefix from meeting date (e.g. "2026-04" -> "APR", "2026-05" -> "MAY")
-      const monthNames=["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
-      const dateParts = mtgDate.split("-");
-      const monthPrefix = dateParts.length>=2 ? monthNames[parseInt(dateParts[1])-1] : "";
-      const yearSuffix = dateParts.length>=1 ? dateParts[0].slice(-2) : "";
-
-      const mtgTroikas=allTroikas
-        .filter(t=>{
-          const tf = t.fields||{};
-          // Method 1: Match via Meeting Name text field (most reliable)
-          const troikaMtgName=(tf["fld1OS9k9TM9nJ6cF"]||"").toUpperCase().trim().replace(/[–—-]/g,"-");
-          const normalMtgName=mtgName.replace(/[–—-]/g,"-");
-          if(troikaMtgName && normalMtgName && troikaMtgName===normalMtgName) return true;
-          // Also try partial match (contains month and year)
-          if(troikaMtgName && normalMtgName && troikaMtgName.length>4 && normalMtgName.includes(troikaMtgName.split("-").pop()?.trim()||"X")) return true;
-          // Method 2: Match via Meeting link field
-          const linkField=tf["fldNvIa8DQnoMU23e"];
-          if(linkField&&Array.isArray(linkField)&&linkField.includes(mtgId)) return true;
-          // Method 3: Match via Troika ID prefix
-          const troikaId=(tf["fld5I6VqdPUQwd0Fg"]||"").toUpperCase();
-          if(monthPrefix && troikaId.includes(monthPrefix) && troikaId.includes(yearSuffix)) return true;
-          return false;
-        })
-        .sort((a,b)=>((a.fields&&a.fields["fldnNtZFpyQElbIp2"])||0)-((b.fields&&b.fields["fldnNtZFpyQElbIp2"])||0))
-        .map(t=>{
-          const tf=t.fields||{};
-          const members=[
-            tf["fldF9EZu92qN0NSoZ"],
-            tf["fldnn1JUEkhR1DtgL"],
-            tf["fldtKHQYyymJ8jKR6"],
-            tf["fldhve8M50ehMe5hS"]
-          ].filter(Boolean);
-          return {
-            number:tf["fldnNtZFpyQElbIp2"]||1,
-            type:tf["fldywATjQsxRNDP0I"]||"Role-based",
-            note:tf["fldA6BEWaNfWoyjPF"]||"",
-            members
-          };
-        });
-
-      // Get name and date — try both field ID and field name
-      const name = f["fldg5G98g7mcpRT4Y"]||f["Meeting Name"]||"Meeting";
-      const date = f["fldns3bTXIg9yGrQl"]||f["Date"]||"";
-      const present = f["fldnRNdx6pQWMCeXu"]||f["Total Present"]||0;
-
-      return {
-        id:mtgId,
-        name,date,present,
-        absent:[],
-        troikas:mtgTroikas
-      };
-    }).filter(m=>m.name!=="Meeting"||m.troikas.length>0); // filter empty unnamed meetings
-
-    console.log("Live meetings built:",liveMeetings.length,"with troikas");
-    liveMeetings.forEach(m=>console.log(" -",m.name,m.date,"troikas:",m.troikas.length));
-    return liveMeetings;
-
-  }catch(err){
-    console.error("loadFromAirtable error:",err.message);
-    return null;
-  }
+    const fields="fields[]=fldg5G98g7mcpRT4Y&fields[]=fldns3bTXIg9yGrQl&fields[]=fldnRNdx6pQWMCeXu&fields[]=fldJTKtFhda5xEynw&fields[]=fld5EXdNQUilAyMcG";
+    const mtgData=await atGet("/v0/"+AT_B+"/tblrPf9FikIin3NIo?sort[0][field]=Date&sort[0][direction]=asc&"+fields);
+    if(!mtgData||!mtgData.records){ console.error("No meetings"); return null; }
+    console.log("Meetings:",mtgData.records.length);
+    const live=mtgData.records.map(rec=>{
+      const f=rec.fields||{};
+      let troikas=[];
+      try{ troikas=(JSON.parse(f["fld5EXdNQUilAyMcG"||"[]"])||[]).map(t=>({number:t.number,type:t.type||"Role-based",note:t.note||"",members:(t.members||[]).map(m=>m.name||m)})); }
+      catch(e){ console.warn("Parse error",e.message); }
+      return {id:rec.id,name:f["fldg5G98g7mcpRT4Y"]||"",date:f["fldns3bTXIg9yGrQl"]||"",present:f["fldnRNdx6pQWMCeXu"]||0,absent:[],troikas};
+    }).filter(m=>m.name);
+    console.log("Built:",live.map(m=>m.name+":"+m.troikas.length).join(", "));
+    return live;
+  }catch(err){ console.error("Error:",err.message); return null; }
 }
 
 async function renderHistory(){
