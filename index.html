@@ -180,6 +180,24 @@ textarea.inp{resize:vertical;min-height:80px}
 .matrix-cell-self{background:#1F3864;color:#1F3864}
 
 .err{color:#E53E3E;font-size:12px;margin-top:8px}
+.mem-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:20px}
+.mem-card{background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.05);position:relative;transition:all .2s}
+.mem-card:hover{box-shadow:0 4px 16px rgba(0,0,0,.1)}
+.mem-card.inactive{opacity:.5}
+.mem-name{font-weight:700;font-size:14px;color:#1F3864;margin-bottom:2px}
+.mem-title{font-size:11px;color:#718096;margin-bottom:4px}
+.mem-company{font-size:12px;font-weight:600;color:#4A5568;margin-bottom:6px}
+.mem-role{font-size:11px;color:#2E75B6;background:#EEF2FF;padding:2px 7px;border-radius:4px;display:inline-block;margin-bottom:8px}
+.mem-contact{font-size:11px;color:#718096;display:flex;flex-direction:column;gap:2px}
+.mem-actions{display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid #F0F4F8}
+.mem-status{position:absolute;top:12px;right:12px;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center}
+.modal{background:#fff;border-radius:16px;padding:28px;width:90%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-title{font-weight:700;font-size:18px;color:#1F3864;margin-bottom:20px}
+.modal-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.modal-footer{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid #E2E8F0}
+.btn-danger{background:#FED7D7;color:#E53E3E;border:none;padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-success{background:#C6F6D5;color:#276749;border:none;padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
 .empty-state{text-align:center;padding:48px 24px;color:#a0aec0}
 .empty-icon{font-size:48px;margin-bottom:12px}
 .empty-title{font-size:16px;font-weight:700;color:#718096;margin-bottom:6px}
@@ -203,7 +221,8 @@ textarea.inp{resize:vertical;min-height:80px}
 <!-- Nav -->
 <div class="nav">
   <button class="nav-tab active" id="tab-build" onclick="switchTab('build')">⚡ Build Troikas</button>
-  <button class="nav-tab" id="tab-history" onclick="switchTab('history')">📊 Members & History</button>
+  <button class="nav-tab" id="tab-history" onclick="switchTab('history')">📊 History</button>
+  <button class="nav-tab" id="tab-members" onclick="switchTab('members')">👥 Member Directory</button>
 </div>
 
 <div class="main">
@@ -215,6 +234,10 @@ textarea.inp{resize:vertical;min-height:80px}
   <!-- History tab -->
   <div id="pane-history" style="display:none">
     <div id="history-content"></div>
+  </div>
+  <!-- Members tab -->
+  <div id="pane-members" style="display:none">
+    <div id="members-content"></div>
   </div>
 </div>
 
@@ -362,9 +385,11 @@ function switchTab(tab){
   currentTab=tab;
   document.getElementById("pane-build").style.display=tab==="build"?"block":"none";
   document.getElementById("pane-history").style.display=tab==="history"?"block":"none";
+  document.getElementById("pane-members").style.display=tab==="members"?"block":"none";
   document.querySelectorAll(".nav-tab").forEach(t=>t.classList.remove("active"));
-  document.getElementById("tab-"+tab).classList.add("active");
+  if(document.getElementById("tab-"+tab)) document.getElementById("tab-"+tab).classList.add("active");
   if(tab==="history")renderHistory().catch(console.error);
+  if(tab==="members")renderMembersTab().catch(console.error);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -892,6 +917,20 @@ async function renderHistory(){
   });
 
   // Stats
+  // If live load fails or returns partial data, merge with hardcoded baseline
+  if(MEETINGS_DB_LIVE.length < MEETINGS_DB.length){
+    // Add any hardcoded meetings not already in live data
+    const liveNames = new Set(MEETINGS_DB_LIVE.map(m=>m.name));
+    MEETINGS_DB.forEach(m=>{ if(!liveNames.has(m.name)) MEETINGS_DB_LIVE.push(m); });
+    // Re-sort by date
+    MEETINGS_DB_LIVE.sort((a,b)=>a.date.localeCompare(b.date));
+  }
+  // Merge live data with hardcoded baseline so history always shows
+  if(MEETINGS_DB_LIVE.length < MEETINGS_DB.length){
+    const liveNames = new Set(MEETINGS_DB_LIVE.map(m=>m.name));
+    MEETINGS_DB.forEach(m=>{ if(!liveNames.has(m.name)) MEETINGS_DB_LIVE.push(m); });
+    MEETINGS_DB_LIVE.sort((a,b)=>a.date.localeCompare(b.date));
+  }
   if(!MEETINGS_DB_LIVE || MEETINGS_DB_LIVE.length === 0){
     // Run a quick diagnostic
     let diagMsg = "Unknown error";
@@ -1108,6 +1147,257 @@ function exportHistory(){
   });
   const b=new Blob([csv],{type:"text/csv"});
   const a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="NYC9_Members_History.csv";a.click();
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MEMBER DIRECTORY TAB
+// ─────────────────────────────────────────────────────────────────────────────
+const MEMBERS_TABLE = "tblW2QHx7WbK2TdAF";
+const AT_BASE_M = "appYV9wqR4kEnfmJx";
+
+// Field IDs for Members table
+const MF = {
+  name:    "fldyRJ6kQCL1yrXRF",
+  title:   "fld6uk6ffzVJa6NAx",
+  company: "fldjGm8K5DELPvWEu",
+  role:    "fldWHZVS3VWT9UI9S",
+  email:   "fldXf1bN4wr0zyOEy",
+  phone:   "fldDkxJoCRlCl4CfK",
+  status:  "fldZNS3JTAwiqGMkG",
+  notes:   "fldOKBPbJSnLMzxqT"
+};
+
+let membersData = [];
+let memberFilter = { search: "", status: "Active" };
+let editingMember = null;
+
+async function atFetchM(path, method, body){
+  const res = await fetch("/.netlify/functions/generate", {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({service:"airtable", atPath:path, atMethod:method||"GET", atBody:body||null})
+  });
+  return res.json();
+}
+
+async function loadMembers(){
+  const data = await atFetchM("/v0/"+AT_BASE_M+"/"+MEMBERS_TABLE+"?pageSize=100");
+  if(data && data.records){
+    membersData = data.records.map(r=>({
+      id: r.id,
+      name:    r.fields[MF.name]    || "",
+      title:   r.fields[MF.title]   || "",
+      company: r.fields[MF.company] || "",
+      role:    r.fields[MF.role]    || "",
+      email:   r.fields[MF.email]   || "",
+      phone:   r.fields[MF.phone]   || "",
+      status:  r.fields[MF.status]  || "Active",
+      notes:   r.fields[MF.notes]   || ""
+    })).sort((a,b)=>a.name.localeCompare(b.name));
+  } else {
+    // Fallback to hardcoded MEMBERS_DB
+    membersData = MEMBERS_DB.map((m,i)=>({
+      id: "local-"+i, name:m.name, title:m.title,
+      company:m.company, role:m.role, email:m.email,
+      phone:m.phone||"", status:m.status||"Active", notes:""
+    }));
+  }
+}
+
+async function renderMembersTab(){
+  r("members-content", `<div style="text-align:center;padding:40px;color:#718096">
+    <div style="font-size:28px;margin-bottom:8px">⏳</div>
+    <div style="font-weight:600">Loading member directory...</div>
+  </div>`);
+
+  await loadMembers();
+
+  const statusColors = {
+    "Active":"#C6F6D5","Group Leader":"#FEFCBF","Guest":"#E2E8F0","Candidate":"#E9D8FD","Inactive":"#FED7D7"
+  };
+  const statusText = {
+    "Active":"#276749","Group Leader":"#744210","Guest":"#4A5568","Candidate":"#553C9A","Inactive":"#E53E3E"
+  };
+
+  let filtered = membersData.filter(m=>{
+    const q = memberFilter.search.toLowerCase();
+    const matchSearch = !q || m.name.toLowerCase().includes(q) ||
+      m.company.toLowerCase().includes(q) || m.role.toLowerCase().includes(q);
+    const matchStatus = memberFilter.status === "All" || m.status === memberFilter.status;
+    return matchSearch && matchStatus;
+  });
+
+  r("members-content", `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px">
+      <div>
+        <div style="font-weight:800;font-size:22px;color:#1F3864">Member Directory</div>
+        <div style="font-size:13px;color:#718096;margin-top:3px">${membersData.length} total members · ${filtered.length} shown</div>
+      </div>
+      <button onclick="openAddMember()" style="background:#1F3864;color:#fff;border:none;border-radius:9px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer">+ Add Member</button>
+    </div>
+
+    <div style="background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:12px 16px;display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:center">
+      <input class="search-inp" style="flex:1;min-width:180px" placeholder="Search by name, company, or role..."
+        value="${escHtml(memberFilter.search)}" oninput="memberSearch(this.value)">
+      <select class="filter-sel" onchange="memberStatusFilter(this.value)">
+        <option ${memberFilter.status==="Active"?"selected":""}>Active</option>
+        <option ${memberFilter.status==="All"?"selected":""}>All</option>
+        <option ${memberFilter.status==="Group Leader"?"selected":""}>Group Leader</option>
+        <option ${memberFilter.status==="Guest"?"selected":""}>Guest</option>
+        <option ${memberFilter.status==="Candidate"?"selected":""}>Candidate</option>
+        <option ${memberFilter.status==="Inactive"?"selected":""}>Inactive</option>
+      </select>
+    </div>
+
+    <div class="mem-grid">
+      ${filtered.map(m=>`
+        <div class="mem-card ${m.status==="Inactive"?"inactive":""}">
+          <span class="mem-status" style="background:${statusColors[m.status]||"#E2E8F0"};color:${statusText[m.status]||"#4A5568"}">${m.status}</span>
+          <div class="mem-name">${escHtml(m.name)}</div>
+          <div class="mem-title">${escHtml(m.title)}</div>
+          <div class="mem-company">${escHtml(m.company)}</div>
+          ${m.role?`<div><span class="mem-role">${escHtml(m.role)}</span></div>`:""}
+          <div class="mem-contact">
+            ${m.email?`<span>✉ ${escHtml(m.email)}</span>`:""}
+            ${m.phone?`<span>📞 ${escHtml(m.phone)}</span>`:""}
+          </div>
+          <div class="mem-actions">
+            <button class="btn-sm" onclick="openEditMember('${m.id}')">✏ Edit</button>
+            ${m.status!=="Inactive"
+              ?`<button class="btn-sm" style="color:#E53E3E" onclick="setMemberStatus('${m.id}','Inactive')">Archive</button>`
+              :`<button class="btn-sm" style="color:#38A169" onclick="setMemberStatus('${m.id}','Active')">Restore</button>`
+            }
+          </div>
+        </div>
+      `).join("")}
+    </div>
+
+    <div id="member-modal"></div>
+  `);
+}
+
+function memberSearch(val){ memberFilter.search=val; renderMembersTab(); }
+function memberStatusFilter(val){ memberFilter.status=val; renderMembersTab(); }
+
+function openAddMember(){
+  editingMember = null;
+  showMemberModal({name:"",title:"",company:"",role:"",email:"",phone:"",status:"Active",notes:""});
+}
+
+function openEditMember(id){
+  editingMember = membersData.find(m=>m.id===id);
+  if(editingMember) showMemberModal(editingMember);
+}
+
+function showMemberModal(m){
+  const statuses = ["Active","Group Leader","Guest","Candidate","Inactive"];
+  document.getElementById("member-modal").innerHTML = `
+    <div class="modal-overlay" onclick="if(event.target===this)closeMemberModal()">
+      <div class="modal">
+        <div class="modal-title">${editingMember?"Edit Member":"Add New Member"}</div>
+        <div class="modal-grid">
+          <div style="grid-column:span 2">
+            <div class="field-lbl">Full Name *</div>
+            <input class="inp" id="mf-name" value="${escHtml(m.name)}" placeholder="First Last">
+          </div>
+          <div>
+            <div class="field-lbl">Title</div>
+            <input class="inp" id="mf-title" value="${escHtml(m.title)}" placeholder="Managing Partner">
+          </div>
+          <div>
+            <div class="field-lbl">Company</div>
+            <input class="inp" id="mf-company" value="${escHtml(m.company)}" placeholder="Firm Name">
+          </div>
+          <div style="grid-column:span 2">
+            <div class="field-lbl">Role / Specialty</div>
+            <input class="inp" id="mf-role" value="${escHtml(m.role)}" placeholder="Attorney – Real Estate">
+          </div>
+          <div>
+            <div class="field-lbl">Email</div>
+            <input class="inp" id="mf-email" value="${escHtml(m.email)}" placeholder="email@firm.com">
+          </div>
+          <div>
+            <div class="field-lbl">Phone</div>
+            <input class="inp" id="mf-phone" value="${escHtml(m.phone)}" placeholder="(212) 555-1234">
+          </div>
+          <div>
+            <div class="field-lbl">Status</div>
+            <select class="inp" id="mf-status">
+              ${statuses.map(s=>`<option ${m.status===s?"selected":""}>${s}</option>`).join("")}
+            </select>
+          </div>
+          <div>
+            <div class="field-lbl">Notes</div>
+            <input class="inp" id="mf-notes" value="${escHtml(m.notes||"")}" placeholder="Optional notes">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-outline" onclick="closeMemberModal()">Cancel</button>
+          ${editingMember?`<button class="btn-danger" onclick="deleteMember('${m.id}')">Delete</button>`:""}
+          <button class="btn-navy" style="width:auto;padding:8px 24px" onclick="saveMember()">
+            ${editingMember?"Save Changes":"Add Member"}
+          </button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function closeMemberModal(){
+  const modal = document.getElementById("member-modal");
+  if(modal) modal.innerHTML = "";
+}
+
+async function saveMember(){
+  const fields = {
+    [MF.name]:    document.getElementById("mf-name").value.trim(),
+    [MF.title]:   document.getElementById("mf-title").value.trim(),
+    [MF.company]: document.getElementById("mf-company").value.trim(),
+    [MF.role]:    document.getElementById("mf-role").value.trim(),
+    [MF.email]:   document.getElementById("mf-email").value.trim(),
+    [MF.phone]:   document.getElementById("mf-phone").value.trim(),
+    [MF.status]:  document.getElementById("mf-status").value,
+    [MF.notes]:   document.getElementById("mf-notes").value.trim(),
+  };
+
+  if(!fields[MF.name]){ alert("Name is required"); return; }
+
+  const saveBtn = document.querySelector(".modal .btn-navy");
+  if(saveBtn){ saveBtn.disabled=true; saveBtn.textContent="Saving..."; }
+
+  try {
+    if(editingMember && !editingMember.id.startsWith("local-")){
+      // Update existing record
+      await atFetchM(
+        "/v0/"+AT_BASE_M+"/"+MEMBERS_TABLE+"/"+editingMember.id,
+        "PATCH", {fields}
+      );
+    } else {
+      // Create new record
+      await atFetchM(
+        "/v0/"+AT_BASE_M+"/"+MEMBERS_TABLE,
+        "POST", {fields}
+      );
+    }
+    closeMemberModal();
+    await renderMembersTab();
+  } catch(err) {
+    alert("Save failed: " + err.message);
+    if(saveBtn){ saveBtn.disabled=false; saveBtn.textContent="Save Changes"; }
+  }
+}
+
+async function setMemberStatus(id, status){
+  if(id.startsWith("local-")){ alert("Connect to Airtable to update member status."); return; }
+  await atFetchM("/v0/"+AT_BASE_M+"/"+MEMBERS_TABLE+"/"+id, "PATCH", {fields:{[MF.status]:status}});
+  await renderMembersTab();
+}
+
+async function deleteMember(id){
+  if(!confirm("Are you sure you want to permanently delete this member?")) return;
+  if(id.startsWith("local-")){ closeMemberModal(); return; }
+  await atFetchM("/v0/"+AT_BASE_M+"/"+MEMBERS_TABLE+"/"+id, "DELETE");
+  closeMemberModal();
+  await renderMembersTab();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
