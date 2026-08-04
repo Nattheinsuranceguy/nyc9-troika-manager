@@ -822,9 +822,8 @@ async function loadFromAirtable(){
     }catch(e){ console.error("atGet:",e.message); return null; }
   }
   try{
-    const fields="fields%5B%5D=fldg5G98g7mcpRT4Y&fields%5B%5D=fldns3bTXIg9yGrQl&fields%5B%5D=fldnRNdx6pQWMCeXu&fields%5B%5D=fldJTKtFhda5xEynw&fields%5B%5D=fld5EXdNQUilAyMcG";
-    const sortParam="sort%5B0%5D%5Bfield%5D=fldns3bTXIg9yGrQl&sort%5B0%5D%5Bdirection%5D=asc";
-    const mtgData=await atGet("/v0/"+AT_B+"/tblrPf9FikIin3NIo?"+sortParam+"&"+fields+"&pageSize=50");
+    // Fetch all meetings - no field filtering to avoid URL encoding issues
+    const mtgData=await atGet("/v0/"+AT_B+"/tblrPf9FikIin3NIo?pageSize=100");
     if(!mtgData||!mtgData.records){ console.error("No meetings"); return null; }
     console.log("Meetings:",mtgData.records.length);
     const live=mtgData.records.map(rec=>{
