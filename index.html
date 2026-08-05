@@ -648,12 +648,11 @@ async function startGenerate(){
     }
     const rawText=data.content?.find(b=>b.type==="text")?.text||"";
     log("🔍 Parsing Troika groups...");await sleep(300);
+    console.log("AI raw response:", rawText.substring(0,500));
 
     let parsed={troikas:[],unassigned:[]};
     const tryParse=(str)=>{
-      // Strip markdown fences if present
       str=str.replace(/```json/gi,"").replace(/```/g,"").trim();
-      // Find outermost JSON object
       const start=str.indexOf("{");
       const end=str.lastIndexOf("}");
       if(start!==-1&&end!==-1&&end>start){
@@ -665,22 +664,33 @@ async function startGenerate(){
     try{
       parsed=tryParse(rawText);
     }catch(e){
-      // Ask AI to reformat its own output as clean JSON
-      log("🔄 Cleaning up AI response format...");
+      console.log("Parse error:", e.message, "Raw:", rawText.substring(0,200));
+      // Try to extract any JSON array of troikas
       try{
-        const fixRes=await fetch("/.netlify/functions/generate",{
-          method:"POST",headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:800,messages:[
-            {role:"user",content:typeof userContent==="string"?userContent:userContent[userContent.length-1].text},
-            {role:"assistant",content:rawText},
-            {role:"user",content:"Please reformat your response as pure JSON only — no markdown, no backticks, no explanation. Start with { and end with }. Keep all the same Troika pairings you just created."}
-          ]})
-        });
-        const fixData=await fixRes.json();
-        const fixText=fixData.content?.find(b=>b.type==="text")?.text||"";
-        parsed=tryParse(fixText);
+        const arrMatch = rawText.match(/"troikas"\s*:\s*(\[[\s\S]*?\])/);
+        if(arrMatch){
+          parsed = {troikas: JSON.parse(arrMatch[1]), unassigned:[]};
+          log("✓ Extracted troikas from partial JSON");
+        } else {
+          throw new Error("No troikas array found");
+        }
       }catch(e2){
-        log("⚠ Could not read AI response. Please try again.");
+        // Last resort: ask AI to fix format
+        log("🔄 Reformatting response...");
+        try{
+          const fixRes=await fetch("/.netlify/functions/generate",{
+            method:"POST",headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:800,messages:[
+              {role:"user",content:"Convert this to valid JSON with format {troikas:[{number:1,type:'Role-based',note:'',why:'',members:[{name:'',role:'',company:''}]}],unassigned:[]}. Output ONLY the JSON, nothing else: "+rawText.substring(0,800)}
+            ]})
+          });
+          const fixData=await fixRes.json();
+          const fixText=fixData.content?.find(b=>b.type==="text")?.text||"";
+          console.log("Fix response:", fixText.substring(0,300));
+          parsed=tryParse(fixText);
+        }catch(e3){
+          log("⚠ Could not parse AI response. Check browser console for details.");
+        }
       }
     }
 
