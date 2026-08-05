@@ -204,7 +204,7 @@ textarea.inp{resize:vertical;min-height:80px}
 <div class="nav">
   <button class="nav-tab active" id="tab-build" onclick="switchTab('build')">⚡ Build Troikas</button>
   <button class="nav-tab" id="tab-history" onclick="switchTab('history')">📊 History</button>
-  <button class="nav-tab" id="tab-members" onclick="switchTab('members')">👥 Member Directory</button>
+  <button class="nav-tab" id="tab-members" onclick="switchTab('members')">👥 Members</button>
 </div>
 
 <div class="main">
@@ -216,9 +216,10 @@ textarea.inp{resize:vertical;min-height:80px}
   <!-- History tab -->
   <div id="pane-history" style="display:none">
     <div id="history-content"></div>
+  </div>
+  <!-- Members tab -->
   <div id="pane-members" style="display:none">
     <div id="members-content"></div>
-  </div>
   </div>
 </div>
 
@@ -365,11 +366,11 @@ function switchTab(tab){
   currentTab=tab;
   document.getElementById("pane-build").style.display=tab==="build"?"block":"none";
   document.getElementById("pane-history").style.display=tab==="history"?"block":"none";
-  if(document.getElementById("pane-members")) document.getElementById("pane-members").style.display=tab==="members"?"block":"none";
+  if(document.getElementById("pane-members"))document.getElementById("pane-members").style.display=tab==="members"?"block":"none";
   document.querySelectorAll(".nav-tab").forEach(t=>t.classList.remove("active"));
   document.getElementById("tab-"+tab).classList.add("active");
-  if(tab==="history")renderHistory();
-  if(tab==="members")renderMembersTab().catch(console.error);
+  if(tab==="history")loadAndRenderHistory();
+  if(tab==="members")loadAndRenderMembers();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -721,7 +722,7 @@ ${state.requests || "None listed."}
 ADDITIONAL INSTRUCTIONS:
 ${state.instructions || "None."}
 
-${state.pdfName ? `PDF photolist "${state.pdfName}" uploaded — pair ALL attendees listed in it.` : "No PDF — use requests and instructions above."}
+${state.pdfName ? `PDF "${state.pdfName}" uploaded — pair ALL attendees in it.` : "No PDF — use requests and instructions above."}
 
 PAIRING RULES:
 1. Natale Scopelliti is NEVER included in any Troika.
@@ -761,8 +762,7 @@ function exportText(){
 
 
 async function saveAirtable(){
-    const AT_BASE  = "appYV9wqR4kEnfmJx";
-  
+  const AT_BASE  = "appYV9wqR4kEnfmJx";
   const saveBtn = document.getElementById("hdr-save");
   const footBtn = document.querySelector(".footer-actions .btn-gold");
   [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=true; b.textContent="Saving..."; } });
@@ -779,7 +779,7 @@ async function saveAirtable(){
     };
     const mtgRes = await fetch("/.netlify/functions/generate", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({service:"airtable", atPath:"/v0/"+AT_BASE+"/tblrPf9FikIin3NIo", atMethod:"POST", atBody:mtgPayload})
+      body: JSON.stringify({service:"airtable",atPath:"/v0/"+AT_BASE+"/tblrPf9FikIin3NIo",atMethod:"POST",atBody:mtgPayload})
     });
     const mtgData = await mtgRes.json();
     if(!mtgRes.ok) throw new Error(mtgData.error?.message || "Failed to create meeting");
@@ -808,7 +808,7 @@ async function saveAirtable(){
       const batch = troikaRecords.slice(i, i+10);
       const tRes = await fetch("/.netlify/functions/generate", {
         method:"POST", headers:{"Content-Type":"application/json"},
-        body: JSON.stringify({service:"airtable", atPath:"/v0/"+AT_BASE+"/tblMkfH1s03X6yB2L", atMethod:"POST", atBody:{records:batch}})
+        body: JSON.stringify({service:"airtable",atPath:"/v0/"+AT_BASE+"/tblMkfH1s03X6yB2L",atMethod:"POST",atBody:{records:batch}})
       });
       const tData = await tRes.json();
       if(!tRes.ok) throw new Error(tData.error?.message || "Failed to create troikas");
@@ -836,6 +836,7 @@ function renderBuild(){renderStepBar();renderHdr();
 // HISTORY TAB
 // ─────────────────────────────────────────────────────────────────────────────
 let histFilter={search:"",status:"All",meeting:"All"};
+let expandedMtg={};
 
 function renderHistory(){
   // Compute derived data
@@ -1056,115 +1057,121 @@ function exportHistory(){
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
 
-// AIRTABLE LOADER & HISTORY
-const AT_BASE_H = "appYV9wqR4kEnfmJx";
-const TROIKA_DATA_FLD = "fld5EXdNQUilAyMcG";
-let MEETINGS_DB_LIVE = [];
-let expandedMtg = {};
-const HIST_COLORS=["#E8F0FE","#E6F4EA","#FEF7E0","#FCE8E6","#F3E8FD","#E8F5E9","#FFF3E0","#E0F7FA","#EDE7F6","#F9E4F0"];
+// ─── LIVE AIRTABLE LOADER ────────────────────────────────────────────────────
+const AT_BASE_LIVE = "appYV9wqR4kEnfmJx";
+const TROIKA_DATA_FIELD = "fld5EXdNQUilAyMcG";
 
-async function atFetch(path, method, body){
-  try{
-    const res = await fetch("/.netlify/functions/generate", {
-      method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({service:"airtable", atPath:path, atMethod:method||"GET", atBody:body||null})
-    });
-    if(!res.ok) throw new Error("HTTP "+res.status);
-    return res.json();
-  }catch(e){ console.error("atFetch:",e.message); return null; }
+async function airtableFetch(path, method, body) {
+  const res = await fetch("/.netlify/functions/generate", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({service:"airtable", atPath:path, atMethod:method||"GET", atBody:body||null})
+  });
+  if (!res.ok) throw new Error("Function error: " + res.status);
+  return res.json();
 }
 
-async function loadFromAirtable(){
-  try{
-    const data = await atFetch("/v0/"+AT_BASE_H+"/tblrPf9FikIin3NIo?pageSize=100");
-    if(!data||!data.records) return null;
-    const live = data.records.map(function(rec){
-      const f = rec.fields||{};
-      let troikas=[];
-      try{
-        const raw = f[TROIKA_DATA_FLD]||f["Troika Data"]||"";
-        if(raw){
-          const parsed = JSON.parse(raw)||[];
-          troikas = parsed.map(function(t){
-            return {
-              number:t.number||1,
-              type:t.type||"Role-based",
-              note:t.note||"",
-              members:(t.members||[]).map(function(m){ return m.name||m; })
-            };
-          });
-        }
-      }catch(e){}
-      return {
-        id:rec.id,
-        name: f["fldg5G98g7mcpRT4Y"]||f["Meeting Name"]||"",
-        date: f["fldns3bTXIg9yGrQl"]||f["Date"]||"",
-        present: f["fldnRNdx6pQWMCeXu"]||f["Total Present"]||0,
-        absent:[], troikas:troikas
-      };
-    }).filter(function(m){ return m.name; });
-    return live.length ? live : null;
-  }catch(e){ return null; }
-}
+async function loadAndRenderHistory() {
+  r("history-content", "<div style='text-align:center;padding:60px;color:#718096'><div style='font-size:32px;margin-bottom:10px'>⏳</div><div style='font-weight:700;font-size:16px;color:#1F3864'>Loading history from Airtable...</div></div>");
+  
+  let meetings = MEETINGS_DB.slice(); // start with hardcoded
 
-async function renderHistory(){
-  r("history-content","<div style='text-align:center;padding:60px;color:#718096'><div style='font-size:36px;margin-bottom:12px'>⏳</div><div style='font-weight:700;font-size:16px;color:#1F3864'>Loading from Airtable...</div></div>");
-  const liveData = await loadFromAirtable();
-  if(liveData && liveData.length > 0){
-    MEETINGS_DB_LIVE = liveData;
-    const liveNames = new Set(MEETINGS_DB_LIVE.map(function(m){ return m.name; }));
-    MEETINGS_DB.forEach(function(m){ if(!liveNames.has(m.name)) MEETINGS_DB_LIVE.push(m); });
-    MEETINGS_DB_LIVE.sort(function(a,b){ return a.date.localeCompare(b.date); });
-  } else {
-    MEETINGS_DB_LIVE = MEETINGS_DB.slice();
+  try {
+    const data = await airtableFetch("/v0/"+AT_BASE_LIVE+"/tblrPf9FikIin3NIo?pageSize=100");
+    if (data && data.records && data.records.length > 0) {
+      const liveNames = new Set();
+      const liveMeetings = [];
+      data.records.forEach(function(rec) {
+        const f = rec.fields || {};
+        const name = f["fldg5G98g7mcpRT4Y"] || f["Meeting Name"] || "";
+        if (!name) return;
+        liveNames.add(name);
+        let troikas = [];
+        try {
+          const raw = f[TROIKA_DATA_FIELD] || f["Troika Data"] || "";
+          if (raw) {
+            troikas = (JSON.parse(raw) || []).map(function(t) {
+              return {
+                number: t.number || 1,
+                type: t.type || "Role-based",
+                note: t.note || "",
+                members: (t.members || []).map(function(m) { return m.name || m; })
+              };
+            });
+          }
+        } catch(e) {}
+        liveMeetings.push({
+          id: rec.id,
+          name: name,
+          date: f["fldns3bTXIg9yGrQl"] || f["Date"] || "",
+          present: f["fldnRNdx6pQWMCeXu"] || f["Total Present"] || 0,
+          absent: [],
+          troikas: troikas
+        });
+      });
+      // Use live data + add any hardcoded months not in live
+      meetings = liveMeetings;
+      MEETINGS_DB.forEach(function(m) {
+        if (!liveNames.has(m.name)) meetings.push(m);
+      });
+      meetings.sort(function(a,b) { return a.date.localeCompare(b.date); });
+    }
+  } catch(e) {
+    console.warn("Airtable history load failed, using hardcoded:", e.message);
   }
 
-  const allPairs={};
-  let totalTroikas=0;
-  MEETINGS_DB_LIVE.forEach(function(mtg){
+  renderHistoryWith(meetings);
+}
+
+function renderHistoryWith(meetings) {
+  var expandedMtgs = {};
+  var colors = ["#E8F0FE","#E6F4EA","#FEF7E0","#FCE8E6","#F3E8FD","#E8F5E9","#FFF3E0","#E0F7FA","#EDE7F6","#F9E4F0"];
+
+  var totalTroikas = 0;
+  var allPairs = {};
+  meetings.forEach(function(mtg) {
     totalTroikas += mtg.troikas.length;
-    mtg.troikas.forEach(function(t){
-      const names = t.members||[];
-      for(let i=0;i<names.length;i++) for(let j=i+1;j<names.length;j++){
-        const key=[names[i],names[j]].sort().join("|||");
-        allPairs[key]=(allPairs[key]||0)+1;
+    mtg.troikas.forEach(function(t) {
+      var names = t.members || [];
+      for (var i=0; i<names.length; i++) for (var j=i+1; j<names.length; j++) {
+        var key = [names[i],names[j]].sort().join("|||");
+        allPairs[key] = (allPairs[key]||0)+1;
       }
     });
   });
-  const uniquePairs = Object.keys(allPairs).length;
-  const repeatPairs = Object.values(allPairs).filter(function(v){ return v>1; }).length;
+  var uniquePairs = Object.keys(allPairs).length;
+  var repeatPairs = Object.values(allPairs).filter(function(v){return v>1;}).length;
 
-  let statsHtml = "";
-  [[MEMBERS_DB.length,"Total Members","#1F3864"],[MEETINGS_DB_LIVE.length,"Meetings Held","#1F3864"],[totalTroikas,"Total Troikas","#1F3864"],[uniquePairs,"Unique Pairs","#1F3864"],[repeatPairs,"Repeat Pairs","#C9A84C"]].forEach(function(row){
+  var statsHtml = "";
+  [[MEMBERS_DB.length,"Total Members","#1F3864"],[meetings.length,"Meetings Held","#1F3864"],[totalTroikas,"Total Troikas","#1F3864"],[uniquePairs,"Unique Pairs","#1F3864"],[repeatPairs,"Repeat Pairs","#C9A84C"]].forEach(function(row) {
     statsHtml += "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px 18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05)'><div style='font-size:32px;font-weight:800;color:"+row[2]+";line-height:1'>"+row[0]+"</div><div style='font-size:11px;color:#718096;margin-top:5px;font-weight:600;text-transform:uppercase;letter-spacing:.5px'>"+row[1]+"</div></div>";
   });
 
-  let mtgsHtml = "";
-  const reversed = MEETINGS_DB_LIVE.slice().reverse();
-  reversed.forEach(function(mtg){
-    let troikaCards = "";
-    mtg.troikas.forEach(function(t, ti){
-      const bg = HIST_COLORS[ti % HIST_COLORS.length];
-      let memberRows = "";
-      (t.members||[]).forEach(function(m){
-        memberRows += "<div style='font-size:11px;color:#4A5568;padding:2px 0'>&bull; "+escHtml(typeof m==="string"?m:m.name||"")+"</div>";
+  var mtgsHtml = "";
+  meetings.slice().reverse().forEach(function(mtg) {
+    var troikaCards = "";
+    mtg.troikas.forEach(function(t, ti) {
+      var members = "";
+      (t.members||[]).forEach(function(m) {
+        members += "<div style='font-size:11px;color:#4A5568;padding:2px 0'>&bull; "+escHtml(typeof m==="string"?m:(m.name||""))+"</div>";
       });
-      const typeTag = t.type==="Requested"?" &middot; REQ":"";
-      const quadTag = (t.members||[]).length===4?" &middot; QUAD":"";
-      troikaCards += "<div style='border-radius:9px;padding:10px 12px;border:1px solid #E2E8F0;background:"+bg+"'><div style='font-size:11px;font-weight:700;color:#1F3864;margin-bottom:6px'>Troika "+t.number+typeTag+quadTag+"</div>"+memberRows+"</div>";
+      troikaCards += "<div style='border-radius:9px;padding:10px 12px;border:1px solid #E2E8F0;background:"+colors[ti%colors.length]+"'>"
+        +"<div style='font-size:11px;font-weight:700;color:#1F3864;margin-bottom:6px'>Troika "+t.number+(t.type==="Requested"?" &middot; REQ":"")+(t.members&&t.members.length===4?" &middot; QUAD":"")+"</div>"
+        +members+"</div>";
     });
-    const expanded = expandedMtg[mtg.id];
+    var bodyId = "hbody-"+mtg.id.replace(/[^a-z0-9]/gi,"-");
+    var chevId = "hchev-"+mtg.id.replace(/[^a-z0-9]/gi,"-");
     mtgsHtml += "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;margin-bottom:12px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.05)'>"
-      +"<div style='background:#1F3864;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer' onclick='toggleMtg(\""+mtg.id+"\")'>"
+      +"<div style='background:#1F3864;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer' onclick='toggleHistoryCard(this)'>"
       +"<div style='display:flex;align-items:center;gap:12px'>"
       +"<div><div style='color:#fff;font-weight:700;font-size:14px'>"+escHtml(mtg.name)+"</div><div style='color:#93B4D8;font-size:12px'>"+fmtDate(mtg.date)+"</div></div>"
-      +"<div style='display:flex;gap:8px'>"
-      +"<span style='background:rgba(255,255,255,.15);color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600'>"+mtg.present+" Present</span>"
-      +"<span style='background:rgba(255,255,255,.15);color:#fff;border-radius:5px;padding:2px 8px;font-size:11px;font-weight:600'>"+mtg.troikas.length+" Troikas</span>"
+      +"<div style='display:flex;gap:6px'>"
+      +"<span style='background:rgba(255,255,255,.15);color:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600'>"+mtg.present+" Present</span>"
+      +"<span style='background:rgba(255,255,255,.15);color:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600'>"+mtg.troikas.length+" Troikas</span>"
       +"</div></div>"
-      +"<span id='chev-"+mtg.id+"' style='color:#93B4D8;font-size:14px'>"+(expanded?"&#9650;":"&#9660;")+"</span>"
+      +"<span class='hchev' style='color:#93B4D8;font-size:14px'>&#9660;</span>"
       +"</div>"
-      +"<div id='body-"+mtg.id+"' style='display:"+(expanded?"block":"none")+";padding:16px 18px'>"
+      +"<div style='display:none;padding:16px 18px'>"
       +"<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px'>"+troikaCards+"</div>"
       +"</div></div>";
   });
@@ -1179,62 +1186,68 @@ async function renderHistory(){
   );
 }
 
-function toggleMtg(id){
-  expandedMtg[id]=!expandedMtg[id];
-  const body=document.getElementById("body-"+id);
-  const chev=document.getElementById("chev-"+id);
-  if(body) body.style.display=expandedMtg[id]?"block":"none";
-  if(chev) chev.innerHTML=expandedMtg[id]?"&#9650;":"&#9660;";
-}
+// ─── MEMBER DIRECTORY ────────────────────────────────────────────────────────
+var membersData = [];
+var memberFilter = { search: "", status: "Active" };
+var editingMember = null;
 
-// MEMBER DIRECTORY
-let membersData = [];
-let memberFilter = { search:"", status:"Active" };
-let editingMember = null;
+async function loadAndRenderMembers() {
+  r("members-content", "<div style='text-align:center;padding:40px;color:#718096'><div style='font-size:28px;margin-bottom:8px'>&#9203;</div><div style='font-weight:600'>Loading members...</div></div>");
 
-async async function loadMembers(){
-  try{
-    const data = await atFetch("/v0/"+AT_BASE_H+"/Members?pageSize=100");
-    if(data && data.records && data.records.length > 0){
-      const mapped = data.records.map(function(r){
-        const f = r.fields||{};
-        function g(){ for(let i=0;i<arguments.length;i++){ if(f[arguments[i]]) return f[arguments[i]]; } return ""; }
+  // Try Airtable first
+  try {
+    var data = await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members?pageSize=100");
+    if (data && data.records && data.records.length > 0) {
+      var mapped = data.records.map(function(r) {
+        var f = r.fields || {};
+        function g() { for(var i=0;i<arguments.length;i++){if(f[arguments[i]])return f[arguments[i]];} return ""; }
         return {
-          id:r.id,
+          id: r.id,
           name:    g("Full Name","fldyRJ6kQCL1yrXRF"),
           title:   g("Title","fld6uk6ffzVJa6NAx"),
           company: g("Company","fldjGm8K5DELPvWEu"),
           role:    g("Role / Specialty","fldWHZVS3VWT9UI9S"),
           email:   g("Email","fldXf1bN4wr0zyOEy"),
           phone:   g("Phone","fldDkxJoCRlCl4CfK"),
-          status:  g("Status","fldZNS3JTAwiqGMkG")||"Active",
+          status:  g("Status","fldZNS3JTAwiqGMkG") || "Active",
           notes:   g("Notes","fldOKBPbJSnLMzxqT")
         };
-      }).sort(function(a,b){ return a.name.localeCompare(b.name); });
-      if(mapped.some(function(m){ return m.name; })){ membersData=mapped; return; }
+      }).sort(function(a,b){return a.name.localeCompare(b.name);});
+      if (mapped.some(function(m){return m.name;})) {
+        membersData = mapped;
+      } else {
+        throw new Error("Empty field data");
+      }
+    } else {
+      throw new Error("No records");
     }
-  }catch(e){ console.warn("Members load failed:",e.message); }
-  membersData = MEMBERS_DB.map(function(m,i){
-    return {id:"local-"+i,name:m.name,title:m.title,company:m.company,role:m.role,email:m.email,phone:m.phone||"",status:m.status||"Active",notes:""};
-  });
+  } catch(e) {
+    console.warn("Members Airtable load failed:", e.message, "— using fallback");
+    membersData = MEMBERS_DB.map(function(m,i){
+      return {id:"local-"+i,name:m.name,title:m.title,company:m.company,
+              role:m.role,email:m.email,phone:m.phone||"",status:m.status||"Active",notes:""};
+    });
+  }
+
+  renderMembersGrid();
 }
 
-async function renderMembersTab(){
-  r("members-content","<div style='text-align:center;padding:40px;color:#718096'><div style='font-size:28px;margin-bottom:8px'>&#9203;</div><div style='font-weight:600'>Loading member directory...</div></div>");
-  await loadMembers();
-  const sC={"Active":"#C6F6D5","Group Leader":"#FEFCBF","Guest":"#E2E8F0","Candidate":"#E9D8FD","Inactive":"#FED7D7"};
-  const sT={"Active":"#276749","Group Leader":"#744210","Guest":"#4A5568","Candidate":"#553C9A","Inactive":"#E53E3E"};
-  const filtered = membersData.filter(function(m){
-    const q=memberFilter.search.toLowerCase();
-    return (!q||m.name.toLowerCase().includes(q)||m.company.toLowerCase().includes(q)||m.role.toLowerCase().includes(q))
-      &&(memberFilter.status==="All"||m.status===memberFilter.status);
+function renderMembersGrid() {
+  var sC = {"Active":"#C6F6D5","Group Leader":"#FEFCBF","Guest":"#E2E8F0","Candidate":"#E9D8FD","Inactive":"#FED7D7"};
+  var sT = {"Active":"#276749","Group Leader":"#744210","Guest":"#4A5568","Candidate":"#553C9A","Inactive":"#E53E3E"};
+  var filtered = membersData.filter(function(m) {
+    var q = memberFilter.search.toLowerCase();
+    return (!q || m.name.toLowerCase().includes(q) || m.company.toLowerCase().includes(q) || m.role.toLowerCase().includes(q))
+      && (memberFilter.status==="All" || m.status===memberFilter.status);
   });
-  let cards="";
-  filtered.forEach(function(m){
-    cards += "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.05);position:relative;"+(m.status==="Inactive"?"opacity:.5":"")+";'>"
+
+  var cards = filtered.map(function(m, idx) {
+    var safeId = "mbr-" + idx;
+    pendingMembers[safeId] = m;
+    return "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.05);position:relative;"+(m.status==="Inactive"?"opacity:.5":"")+";'>"
       +"<span style='position:absolute;top:12px;right:12px;background:"+(sC[m.status]||"#E2E8F0")+";color:"+(sT[m.status]||"#4A5568")+";padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700'>"+m.status+"</span>"
       +"<div style='font-weight:700;font-size:14px;color:#1F3864;margin-bottom:2px;padding-right:60px'>"+(escHtml(m.name)||"<em style='color:#a0aec0'>No name</em>")+"</div>"
-      +"<div style='font-size:11px;color:#718096;margin-bottom:4px'>"+escHtml(m.title)+"</div>"
+      +"<div style='font-size:11px;color:#718096;margin-bottom:3px'>"+escHtml(m.title)+"</div>"
       +"<div style='font-size:12px;font-weight:600;color:#4A5568;margin-bottom:6px'>"+escHtml(m.company)+"</div>"
       +(m.role?"<span style='font-size:11px;color:#2E75B6;background:#EEF2FF;padding:2px 7px;border-radius:4px;display:inline-block;margin-bottom:8px'>"+escHtml(m.role)+"</span>":"")
       +"<div style='font-size:11px;color:#718096;margin-bottom:10px'>"
@@ -1242,12 +1255,13 @@ async function renderMembersTab(){
       +(m.phone?"<div>&#128222; "+escHtml(m.phone)+"</div>":"")
       +"</div>"
       +"<div style='display:flex;gap:6px;padding-top:10px;border-top:1px solid #F0F4F8'>"
-      +"<button class='btn-sm' onclick='openEditMember(\""+m.id+"\")'>&#9999; Edit</button>"
+      +"<button class='btn-sm' onclick='editMemberById(this)' data-id='"+safeId+"'>&#9999; Edit</button>"
       +(m.status!=="Inactive"
-        ?"<button class='btn-sm' style='color:#E53E3E' onclick='setMemberStatus(\""+m.id+"\",\"Inactive\")'>Archive</button>"
-        :"<button class='btn-sm' style='color:#38A169' onclick='setMemberStatus(\""+m.id+"\",\"Active\")'>Restore</button>")
+        ?"<button class='btn-sm' style='color:#E53E3E' onclick='archiveMemberById(this)' data-id='"+safeId+"'>Archive</button>"
+        :"<button class='btn-sm' style='color:#38A169' onclick='restoreMemberById(this)' data-id='"+safeId+"'>Restore</button>")
       +"</div></div>";
-  });
+  }).join("");
+
   r("members-content",
     "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px'>"
     +"<div><div style='font-weight:800;font-size:22px;color:#1F3864'>Member Directory</div>"
@@ -1256,22 +1270,43 @@ async function renderMembersTab(){
     +"<div style='background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:12px 16px;display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:center'>"
     +"<input class='search-inp' style='flex:1;min-width:180px' placeholder='Search by name, company, or role...' value='"+escHtml(memberFilter.search)+"' oninput='memberSearch(this.value)'>"
     +"<select class='filter-sel' onchange='memberStatusFilter(this.value)'>"
-    +["Active","All","Group Leader","Guest","Candidate","Inactive"].map(function(s){ return "<option "+(memberFilter.status===s?"selected":"")+">"+s+"</option>"; }).join("")
+    +["Active","All","Group Leader","Guest","Candidate","Inactive"].map(function(s){return "<option "+(memberFilter.status===s?"selected":"")+">"+s+"</option>";}).join("")
     +"</select></div>"
     +"<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:24px'>"+cards+"</div>"
     +"<div id='member-modal'></div>"
   );
 }
 
-function memberSearch(v){ memberFilter.search=v; renderMembersTab(); }
-function memberStatusFilter(v){ memberFilter.status=v; renderMembersTab(); }
-function openAddMember(){ editingMember=null; showMemberModal({name:"",title:"",company:"",role:"",email:"",phone:"",status:"Active",notes:""}); }
-function openEditMember(id){ editingMember=membersData.find(function(m){ return m.id===id; }); if(editingMember) showMemberModal(editingMember); }
-function closeMemberModal(){ var el=document.getElementById("member-modal"); if(el) el.innerHTML=""; }
+var pendingMembers = {};
+function editMemberById(btn) { var m = pendingMembers[btn.dataset.id]; if(m) { editingMember=m; showMemberModal(m); } }
+function archiveMemberById(btn) { var m = pendingMembers[btn.dataset.id]; if(m) archiveMember(m.id); }
+function restoreMemberById(btn) { var m = pendingMembers[btn.dataset.id]; if(m) restoreMember(m.id); }
 
-function showMemberModal(m){
-  var statuses=["Active","Group Leader","Guest","Candidate","Inactive"];
-  var opts=statuses.map(function(s){ return "<option "+(m.status===s?"selected":"")+">"+s+"</option>"; }).join("");
+
+function memberSearch(v) { memberFilter.search=v; renderMembersGrid(); }
+function memberStatusFilter(v) { memberFilter.status=v; renderMembersGrid(); }
+
+function closeMemberModal() {
+  var el = document.getElementById("member-modal");
+  if (el) el.innerHTML = "";
+}
+
+function openAddMember() {
+  editingMember = null;
+  showMemberModal({name:"",title:"",company:"",role:"",email:"",phone:"",status:"Active",notes:""});
+}
+
+function openEditMember(id) {
+  editingMember = membersData.find(function(m){return m.id===id;});
+  if (editingMember) showMemberModal(editingMember);
+}
+
+function showMemberModal(m) {
+  var statuses = ["Active","Group Leader","Guest","Candidate","Inactive"];
+  var opts = statuses.map(function(s){return "<option "+(m.status===s?"selected":"")+">"+s+"</option>";}).join("");
+  var deleteBtn = editingMember
+    ? "<button style='background:#FED7D7;color:#E53E3E;border:none;padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer' id='member-delete-btn'>Delete</button>"
+    : "";
   document.getElementById("member-modal").innerHTML =
     "<div style='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center' onclick='if(event.target===this)closeMemberModal()'>"
     +"<div style='background:#fff;border-radius:16px;padding:28px;width:90%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)'>"
@@ -1288,36 +1323,71 @@ function showMemberModal(m){
     +"</div>"
     +"<div style='display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid #E2E8F0'>"
     +"<button class='btn-outline' onclick='closeMemberModal()'>Cancel</button>"
-    +(editingMember?"<button style='background:#FED7D7;color:#E53E3E;border:none;padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer' onclick='deleteMember(\""+m.id+"\")''>Delete</button>":"")
-    +"<button class='btn-navy' style='width:auto;padding:8px 24px' onclick='saveMember()'>"+(editingMember?"Save Changes":"Add Member")+"</button>"
+    +deleteBtn
+    +"<button class='btn-navy' style='width:auto;padding:8px 24px' id='member-save-btn'>"+(editingMember?"Save Changes":"Add Member")+"</button>"
     +"</div></div></div>";
+
+  // Attach event listeners after rendering
+  var saveBtn = document.getElementById("member-save-btn");
+  if (saveBtn) saveBtn.onclick = saveMember;
+  var delBtn = document.getElementById("member-delete-btn");
+  if (delBtn) delBtn.onclick = function() { deleteMember(editingMember.id); };
 }
 
-async function saveMember(){
-  var fields={"Full Name":document.getElementById("mf-name").value.trim(),"Title":document.getElementById("mf-title").value.trim(),"Company":document.getElementById("mf-company").value.trim(),"Role / Specialty":document.getElementById("mf-role").value.trim(),"Email":document.getElementById("mf-email").value.trim(),"Phone":document.getElementById("mf-phone").value.trim(),"Status":document.getElementById("mf-status").value,"Notes":document.getElementById("mf-notes").value.trim()};
-  if(!fields["Full Name"]){ alert("Name is required"); return; }
-  var btn=document.querySelector("#member-modal .btn-navy");
-  if(btn){ btn.disabled=true; btn.textContent="Saving..."; }
-  try{
-    if(editingMember && !editingMember.id.startsWith("local-")){
-      await atFetch("/v0/"+AT_BASE_H+"/Members/"+editingMember.id,"PATCH",{fields:fields});
+async function saveMember() {
+  var fields = {
+    "Full Name": document.getElementById("mf-name").value.trim(),
+    "Title":     document.getElementById("mf-title").value.trim(),
+    "Company":   document.getElementById("mf-company").value.trim(),
+    "Role / Specialty": document.getElementById("mf-role").value.trim(),
+    "Email":     document.getElementById("mf-email").value.trim(),
+    "Phone":     document.getElementById("mf-phone").value.trim(),
+    "Status":    document.getElementById("mf-status").value,
+    "Notes":     document.getElementById("mf-notes").value.trim()
+  };
+  if (!fields["Full Name"]) { alert("Name is required"); return; }
+  var btn = document.querySelector("#member-modal .btn-navy");
+  if (btn) { btn.disabled=true; btn.textContent="Saving..."; }
+  try {
+    if (editingMember && !editingMember.id.startsWith("local-")) {
+      await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+editingMember.id, "PATCH", {fields:fields});
     } else {
-      await atFetch("/v0/"+AT_BASE_H+"/Members","POST",{records:[{fields:fields}]});
+      await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members", "POST", {records:[{fields:fields}]});
     }
-    closeMemberModal(); await renderMembersTab();
-  }catch(err){ alert("Save failed: "+err.message); if(btn){ btn.disabled=false; btn.textContent="Save Changes"; } }
+    closeMemberModal();
+    await loadAndRenderMembers();
+  } catch(err) {
+    alert("Save failed: "+err.message);
+    if (btn) { btn.disabled=false; btn.textContent="Save Changes"; }
+  }
 }
 
-async function setMemberStatus(id, status){
-  if(id.startsWith("local-")){ alert("Connect to Airtable to update status."); return; }
-  await atFetch("/v0/"+AT_BASE_H+"/Members/"+id,"PATCH",{fields:{"Status":status}});
-  await renderMembersTab();
+async function archiveMember(id) {
+  if (id.startsWith("local-")) { alert("Connect to Airtable to update status."); return; }
+  await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+id,"PATCH",{fields:{"Status":"Inactive"}});
+  await loadAndRenderMembers();
 }
 
-async function deleteMember(id){
-  if(!confirm("Permanently delete this member?")) return;
-  if(!id.startsWith("local-")) await atFetch("/v0/"+AT_BASE_H+"/Members/"+id,"DELETE");
-  closeMemberModal(); await renderMembersTab();
+async function restoreMember(id) {
+  if (id.startsWith("local-")) { alert("Connect to Airtable to update status."); return; }
+  await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+id,"PATCH",{fields:{"Status":"Active"}});
+  await loadAndRenderMembers();
+}
+
+async function deleteMember(id) {
+  if (!confirm("Permanently delete this member?")) return;
+  if (!id.startsWith("local-")) await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+id,"DELETE");
+  closeMemberModal();
+  await loadAndRenderMembers();
+}
+
+function toggleHistoryCard(el) {
+  var body = el.nextSibling;
+  if (!body) return;
+  var isOpen = body.style.display === "block";
+  body.style.display = isOpen ? "none" : "block";
+  var chev = el.querySelector(".hchev");
+  if (chev) chev.innerHTML = isOpen ? "&#9660;" : "&#9650;";
 }
 
 renderBuild();
