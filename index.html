@@ -1192,7 +1192,7 @@ let membersData = [];
 let memberFilter = { search:"", status:"Active" };
 let editingMember = null;
 
-async function loadMembers(){
+async async function loadMembers(){
   try{
     const data = await atFetch("/v0/"+AT_BASE_H+"/Members?pageSize=100");
     if(data && data.records && data.records.length > 0){
