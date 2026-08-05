@@ -751,16 +751,30 @@ function fallbackTroikas(){
 }
 
 function exportText(){
-  let out=`ProVisors NYC9 — Troika Pairings\n${state.meetingName||"Meeting"}${state.meetingDate?" | "+fmtDate(state.meetingDate):""}\n${"─".repeat(50)}\n\n`;
-  state.troikas.forEach(t=>{
-    out+=`Troika ${t.number}${t.type==="Requested"?" (Requested)":""}${t.members.length===4?" (Quad)":""}\n`;
-    t.members.forEach(m=>{out+=`  • ${m.name}${m.role?" — "+m.role:""}${m.company?" | "+m.company:""}\n`;});
-    if(t.why)out+=`  ↳ ${t.why}\n`;
-    out+="\n";
+  var out = "ProVisors NYC9 - Troika Pairings\n";
+  out += (state.meetingName || "Meeting");
+  out += state.meetingDate ? " | " + fmtDate(state.meetingDate) : "";
+  out += "\n--------------------------------------------------\n\n";
+  state.troikas.forEach(function(t) {
+    out += "Troika " + t.number;
+    out += t.type === "Requested" ? " (Requested)" : "";
+    out += t.members.length === 4 ? " (Quad)" : "";
+    out += "\n";
+    t.members.forEach(function(m) {
+      out += "  * " + (m.name || m);
+      out += m.role ? " - " + m.role : "";
+      out += m.company ? " | " + m.company : "";
+      out += "\n";
+    });
+    if (t.why) out += "  -> " + t.why + "\n";
+    out += "\n";
   });
-  const b=new Blob([out],{type:"text/plain"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(b);
-  a.download=`NYC9_Troikas_${(state.meetingName||"Meeting").replace(/\s+/g,"_")}.txt`;a.click();
+  var slug = (state.meetingName || "Meeting").replace(/\s+/g, "_");
+  var b = new Blob([out], {type: "text/plain"});
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(b);
+  a.download = "NYC9_Troikas_" + slug + ".txt";
+  a.click();
 }
 
 
@@ -792,7 +806,7 @@ async function saveAirtable(){
     const troikaRecords = state.troikas.map((t,i) => {
       const mtgPrefix = (state.meetingName||"MTG").replace(/[^A-Za-z0-9]/g,"").substring(0,6).toUpperCase();
       const fields = {
-        "fld5I6VqdPUQwd0Fg": `${mtgPrefix}-T${t.number}`,
+        "fld5I6VqdPUQwd0Fg": mtgPrefix + "-T" + t.number,
         "fldnNtZFpyQElbIp2": t.number,
         "fldywATjQsxRNDP0I": t.members.length === 4 ? "Quad" : (t.type || "Role-based"),
         "fldA6BEWaNfWoyjPF": t.note || "",
@@ -819,7 +833,7 @@ async function saveAirtable(){
 
     state.saved = true;
     [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=true; b.textContent="✓ Saved to Airtable"; b.style.background="#38A169"; b.style.color="#fff"; } });
-    alert(`✅ Saved to Airtable!\n\n${state.troikas.length} Troikas from "${state.meetingName||"Meeting"}" have been added to your NYC9 Troika Manager base.`);
+    alert(`Saved to Airtable!\n\n${state.troikas.length} Troikas from "${state.meetingName||"Meeting"}" added to your NYC9 Troika Manager base.`);
 
   } catch(err) {
     [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=false; b.textContent="💾 Save to Airtable"; } });
