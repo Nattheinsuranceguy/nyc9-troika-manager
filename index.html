@@ -216,10 +216,9 @@ textarea.inp{resize:vertical;min-height:80px}
   <!-- History tab -->
   <div id="pane-history" style="display:none">
     <div id="history-content"></div>
-  </div>
-  <!-- Members tab -->
   <div id="pane-members" style="display:none">
     <div id="members-content"></div>
+  </div>
   </div>
 </div>
 
@@ -639,7 +638,7 @@ async function startGenerate(){
       headers:{
         "Content-Type":"application/json",
         },
-      body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:800,messages:[{role:"user",content:userContent}]})
+      body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1800,messages:[{role:"user",content:userContent}]})
     });
     const data=await res.json();
     if(!res.ok){
@@ -648,11 +647,12 @@ async function startGenerate(){
     }
     const rawText=data.content?.find(b=>b.type==="text")?.text||"";
     log("🔍 Parsing Troika groups...");await sleep(300);
-    console.log("AI raw response:", rawText.substring(0,500));
 
     let parsed={troikas:[],unassigned:[]};
     const tryParse=(str)=>{
+      // Strip markdown fences if present
       str=str.replace(/```json/gi,"").replace(/```/g,"").trim();
+      // Find outermost JSON object
       const start=str.indexOf("{");
       const end=str.lastIndexOf("}");
       if(start!==-1&&end!==-1&&end>start){
@@ -664,33 +664,22 @@ async function startGenerate(){
     try{
       parsed=tryParse(rawText);
     }catch(e){
-      console.log("Parse error:", e.message, "Raw:", rawText.substring(0,200));
-      // Try to extract any JSON array of troikas
+      // Ask AI to reformat its own output as clean JSON
+      log("🔄 Cleaning up AI response format...");
       try{
-        const arrMatch = rawText.match(/"troikas"\s*:\s*(\[[\s\S]*?\])/);
-        if(arrMatch){
-          parsed = {troikas: JSON.parse(arrMatch[1]), unassigned:[]};
-          log("✓ Extracted troikas from partial JSON");
-        } else {
-          throw new Error("No troikas array found");
-        }
+        const fixRes=await fetch("/.netlify/functions/generate",{
+          method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:1800,messages:[
+            {role:"user",content:typeof userContent==="string"?userContent:userContent[userContent.length-1].text},
+            {role:"assistant",content:rawText},
+            {role:"user",content:"Please reformat your response as pure JSON only — no markdown, no backticks, no explanation. Start with { and end with }. Keep all the same Troika pairings you just created."}
+          ]})
+        });
+        const fixData=await fixRes.json();
+        const fixText=fixData.content?.find(b=>b.type==="text")?.text||"";
+        parsed=tryParse(fixText);
       }catch(e2){
-        // Last resort: ask AI to fix format
-        log("🔄 Reformatting response...");
-        try{
-          const fixRes=await fetch("/.netlify/functions/generate",{
-            method:"POST",headers:{"Content-Type":"application/json"},
-            body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:800,messages:[
-              {role:"user",content:"Convert this to valid JSON with format {troikas:[{number:1,type:'Role-based',note:'',why:'',members:[{name:'',role:'',company:''}]}],unassigned:[]}. Output ONLY the JSON, nothing else: "+rawText.substring(0,800)}
-            ]})
-          });
-          const fixData=await fixRes.json();
-          const fixText=fixData.content?.find(b=>b.type==="text")?.text||"";
-          console.log("Fix response:", fixText.substring(0,300));
-          parsed=tryParse(fixText);
-        }catch(e3){
-          log("⚠ Could not parse AI response. Check browser console for details.");
-        }
+        log("⚠ Could not read AI response. Please try again.");
       }
     }
 
@@ -732,9 +721,7 @@ ${state.requests || "None listed."}
 ADDITIONAL INSTRUCTIONS:
 ${state.instructions || "None."}
 
-${state.pdfBase64
-  ? "The attached PDF is the meeting photolist. Extract EVERY person listed in it as an attendee. Their name, title, company, and role/specialty are all in the PDF. Use all of them."
-  : "No PDF attached — pair the people described in the requests and instructions above."}
+${state.pdfName ? `PDF photolist "${state.pdfName}" uploaded — pair ALL attendees listed in it.` : "No PDF — use requests and instructions above."}
 
 PAIRING RULES:
 1. Natale Scopelliti is NEVER included in any Troika.
@@ -849,7 +836,6 @@ function renderBuild(){renderStepBar();renderHdr();
 // HISTORY TAB
 // ─────────────────────────────────────────────────────────────────────────────
 let histFilter={search:"",status:"All",meeting:"All"};
-let expandedMtg={};
 
 function renderHistory(){
   // Compute derived data
@@ -1069,13 +1055,12 @@ function exportHistory(){
 // ─────────────────────────────────────────────────────────────────────────────
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
-renderBuild();
 
 // AIRTABLE LOADER & HISTORY
 const AT_BASE_H = "appYV9wqR4kEnfmJx";
 const TROIKA_DATA_FLD = "fld5EXdNQUilAyMcG";
 let MEETINGS_DB_LIVE = [];
-expandedMtg = {};
+let expandedMtg = {};
 const HIST_COLORS=["#E8F0FE","#E6F4EA","#FEF7E0","#FCE8E6","#F3E8FD","#E8F5E9","#FFF3E0","#E0F7FA","#EDE7F6","#F9E4F0"];
 
 async function atFetch(path, method, body){
