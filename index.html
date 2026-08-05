@@ -216,10 +216,9 @@ textarea.inp{resize:vertical;min-height:80px}
   <!-- History tab -->
   <div id="pane-history" style="display:none">
     <div id="history-content"></div>
-  </div>
-  <!-- Members tab -->
   <div id="pane-members" style="display:none">
     <div id="members-content"></div>
+  </div>
   </div>
 </div>
 
@@ -722,7 +721,7 @@ ${state.requests || "None listed."}
 ADDITIONAL INSTRUCTIONS:
 ${state.instructions || "None."}
 
-${state.pdfName ? `PDF "${state.pdfName}" uploaded — pair ALL attendees in it.` : "No PDF — use requests and instructions above."}
+${state.pdfName ? `PDF "${state.pdfName}" uploaded.` : "No PDF attached."}
 
 PAIRING RULES:
 1. Natale Scopelliti is NEVER included in any Troika.
@@ -737,10 +736,7 @@ IMPORTANT OUTPUT FORMAT:
 - Your entire response must start with the character { and end with the character }
 - Structure: {"troikas":[{"number":1,"type":"Requested","note":"brief reason","why":"why it works","members":[{"name":"Full Name","role":"Role / Specialty","company":"Company"},{"name":"Full Name","role":"Role / Specialty","company":"Company"},{"name":"Full Name","role":"Role / Specialty","company":"Company"}]}],"unassigned":[]}
 - "type" must be one of: "Requested", "Role-based", or "Quad"
-RECENT PAIRING HISTORY — avoid repeating these pairs where possible:
-\${getRecentPairingHistory()}
-
-- Begin your response with { immediately:\`;
+- Begin your response with { immediately:`;
 }
 
 function fallbackTroikas(){
@@ -751,30 +747,16 @@ function fallbackTroikas(){
 }
 
 function exportText(){
-  var out = "ProVisors NYC9 - Troika Pairings\n";
-  out += (state.meetingName || "Meeting");
-  out += state.meetingDate ? " | " + fmtDate(state.meetingDate) : "";
-  out += "\n--------------------------------------------------\n\n";
-  state.troikas.forEach(function(t) {
-    out += "Troika " + t.number;
-    out += t.type === "Requested" ? " (Requested)" : "";
-    out += t.members.length === 4 ? " (Quad)" : "";
-    out += "\n";
-    t.members.forEach(function(m) {
-      out += "  * " + (m.name || m);
-      out += m.role ? " - " + m.role : "";
-      out += m.company ? " | " + m.company : "";
-      out += "\n";
-    });
-    if (t.why) out += "  -> " + t.why + "\n";
-    out += "\n";
+  let out=`ProVisors NYC9 — Troika Pairings\n${state.meetingName||"Meeting"}${state.meetingDate?" | "+fmtDate(state.meetingDate):""}\n${"─".repeat(50)}\n\n`;
+  state.troikas.forEach(t=>{
+    out+=`Troika ${t.number}${t.type==="Requested"?" (Requested)":""}${t.members.length===4?" (Quad)":""}\n`;
+    t.members.forEach(m=>{out+=`  • ${m.name}${m.role?" — "+m.role:""}${m.company?" | "+m.company:""}\n`;});
+    if(t.why)out+=`  ↳ ${t.why}\n`;
+    out+="\n";
   });
-  var slug = (state.meetingName || "Meeting").replace(/\s+/g, "_");
-  var b = new Blob([out], {type: "text/plain"});
-  var a = document.createElement("a");
-  a.href = URL.createObjectURL(b);
-  a.download = "NYC9_Troikas_" + slug + ".txt";
-  a.click();
+  const b=new Blob([out],{type:"text/plain"});
+  const a=document.createElement("a");a.href=URL.createObjectURL(b);
+  a.download=`NYC9_Troikas_${(state.meetingName||"Meeting").replace(/\s+/g,"_")}.txt`;a.click();
 }
 
 
@@ -833,7 +815,7 @@ async function saveAirtable(){
 
     state.saved = true;
     [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=true; b.textContent="✓ Saved to Airtable"; b.style.background="#38A169"; b.style.color="#fff"; } });
-    alert("Saved to Airtable!\n\n" + state.troikas.length + " Troikas added to your NYC9 Troika Manager base.");
+    alert(`✅ Saved to Airtable!\n\n${state.troikas.length} Troikas from "${state.meetingName||"Meeting"}" have been added to your NYC9 Troika Manager base.`);
 
   } catch(err) {
     [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=false; b.textContent="💾 Save to Airtable"; } });
@@ -1074,9 +1056,7 @@ function exportHistory(){
 // INIT
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ─── LIVE AIRTABLE LOADER ────────────────────────────────────────────────────
-const AT_BASE_LIVE = "appYV9wqR4kEnfmJx";
-const TROIKA_DATA_FIELD = "fld5EXdNQUilAyMcG";
+var LIVE_MEETINGS = [];
 
 async function airtableFetch(path, method, body) {
   const res = await fetch("/.netlify/functions/generate", {
@@ -1089,12 +1069,10 @@ async function airtableFetch(path, method, body) {
 }
 
 async function loadAndRenderHistory() {
-  r("history-content", "<div style='text-align:center;padding:60px;color:#718096'><div style='font-size:32px;margin-bottom:10px'>⏳</div><div style='font-weight:700;font-size:16px;color:#1F3864'>Loading history from Airtable...</div></div>");
-  
-  let meetings = MEETINGS_DB.slice(); // start with hardcoded
-
+  r("history-content", "<div style='text-align:center;padding:60px;color:#718096'><div style='font-size:32px;margin-bottom:10px'>⏳</div><div style='font-weight:700;font-size:16px;color:#1F3864'>Loading history...</div></div>");
+  let meetings = MEETINGS_DB.slice();
   try {
-    const data = await airtableFetch("/v0/"+AT_BASE_LIVE+"/tblrPf9FikIin3NIo?pageSize=100");
+    const data = await airtableFetch("/v0/appYV9wqR4kEnfmJx/tblrPf9FikIin3NIo?pageSize=100");
     if (data && data.records && data.records.length > 0) {
       const liveNames = new Set();
       const liveMeetings = [];
@@ -1105,182 +1083,202 @@ async function loadAndRenderHistory() {
         liveNames.add(name);
         let troikas = [];
         try {
-          const raw = f[TROIKA_DATA_FIELD] || f["Troika Data"] || "";
+          const raw = f["fld5EXdNQUilAyMcG"] || f["Troika Data"] || "";
           if (raw) {
             troikas = (JSON.parse(raw) || []).map(function(t) {
-              return {
-                number: t.number || 1,
-                type: t.type || "Role-based",
-                note: t.note || "",
-                members: (t.members || []).map(function(m) { return m.name || m; })
-              };
+              return {number:t.number||1, type:t.type||"Role-based", note:t.note||"",
+                members:(t.members||[]).map(function(m){return m.name||m;})};
             });
           }
         } catch(e) {}
-        liveMeetings.push({
-          id: rec.id,
-          name: name,
-          date: f["fldns3bTXIg9yGrQl"] || f["Date"] || "",
-          present: f["fldnRNdx6pQWMCeXu"] || f["Total Present"] || 0,
-          absent: [],
-          troikas: troikas
-        });
+        liveMeetings.push({id:rec.id, name:name,
+          date: f["fldns3bTXIg9yGrQl"]||f["Date"]||"",
+          present: f["fldnRNdx6pQWMCeXu"]||f["Total Present"]||0,
+          absent:[], troikas:troikas});
       });
-      // Use live data + add any hardcoded months not in live
       meetings = liveMeetings;
-      MEETINGS_DB.forEach(function(m) {
-        if (!liveNames.has(m.name)) meetings.push(m);
-      });
-      meetings.sort(function(a,b) { return a.date.localeCompare(b.date); });
-      LIVE_MEETINGS = meetings.slice(); // store globally for pairing history
+      MEETINGS_DB.forEach(function(m){ if(!liveNames.has(m.name)) meetings.push(m); });
+      meetings.sort(function(a,b){return a.date.localeCompare(b.date);});
+      LIVE_MEETINGS = meetings.slice();
     }
-  } catch(e) {
-    console.warn("Airtable history load failed, using hardcoded:", e.message);
-  }
-
-  renderHistoryWith(meetings);
+  } catch(e) { console.warn("History load failed:", e.message); }
+  renderHistory_with(meetings);
 }
 
-function renderHistoryWith(meetings) {
-  var expandedMtgs = {};
-  var colors = ["#E8F0FE","#E6F4EA","#FEF7E0","#FCE8E6","#F3E8FD","#E8F5E9","#FFF3E0","#E0F7FA","#EDE7F6","#F9E4F0"];
-
-  var totalTroikas = 0;
-  var allPairs = {};
+function renderHistory_with(meetings) {
+  const colors = ["#E8F0FE","#E6F4EA","#FEF7E0","#FCE8E6","#F3E8FD","#E8F5E9","#FFF3E0","#E0F7FA","#EDE7F6","#F9E4F0"];
+  let totalTroikas = 0, allPairs = {};
   meetings.forEach(function(mtg) {
     totalTroikas += mtg.troikas.length;
     mtg.troikas.forEach(function(t) {
-      var names = t.members || [];
-      for (var i=0; i<names.length; i++) for (var j=i+1; j<names.length; j++) {
-        var key = [names[i],names[j]].sort().join("|||");
+      const names = t.members || [];
+      for (let i=0; i<names.length; i++) for (let j=i+1; j<names.length; j++) {
+        const key = [names[i],names[j]].sort().join("|||");
         allPairs[key] = (allPairs[key]||0)+1;
       }
     });
   });
-  var uniquePairs = Object.keys(allPairs).length;
-  var repeatPairs = Object.values(allPairs).filter(function(v){return v>1;}).length;
+  const uniquePairs = Object.keys(allPairs).length;
+  const repeatPairs = Object.values(allPairs).filter(v=>v>1).length;
 
-  var statsHtml = "";
-  [[MEMBERS_DB.length,"Total Members","#1F3864"],[meetings.length,"Meetings Held","#1F3864"],[totalTroikas,"Total Troikas","#1F3864"],[uniquePairs,"Unique Pairs","#1F3864"],[repeatPairs,"Repeat Pairs","#C9A84C"]].forEach(function(row) {
-    statsHtml += "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px 18px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.05)'><div style='font-size:32px;font-weight:800;color:"+row[2]+";line-height:1'>"+row[0]+"</div><div style='font-size:11px;color:#718096;margin-top:5px;font-weight:600;text-transform:uppercase;letter-spacing:.5px'>"+row[1]+"</div></div>";
+  let statsHtml = "";
+  [[MEMBERS_DB.length,"Total Members","#1F3864"],[meetings.length,"Meetings Held","#1F3864"],
+   [totalTroikas,"Total Troikas","#1F3864"],[uniquePairs,"Unique Pairs","#1F3864"],[repeatPairs,"Repeat Pairs","#C9A84C"]]
+  .forEach(function(row) {
+    statsHtml += "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:16px 18px;text-align:center'>"
+      + "<div style='font-size:32px;font-weight:800;color:"+row[2]+"'>"+row[0]+"</div>"
+      + "<div style='font-size:11px;color:#718096;margin-top:5px;font-weight:600;text-transform:uppercase'>"+row[1]+"</div></div>";
   });
 
-  var mtgsHtml = "";
+  let mtgsHtml = "";
   meetings.slice().reverse().forEach(function(mtg) {
-    var troikaCards = "";
+    let troikaCards = "";
     mtg.troikas.forEach(function(t, ti) {
-      var members = "";
+      let members = "";
       (t.members||[]).forEach(function(m) {
         members += "<div style='font-size:11px;color:#4A5568;padding:2px 0'>&bull; "+escHtml(typeof m==="string"?m:(m.name||""))+"</div>";
       });
       troikaCards += "<div style='border-radius:9px;padding:10px 12px;border:1px solid #E2E8F0;background:"+colors[ti%colors.length]+"'>"
-        +"<div style='font-size:11px;font-weight:700;color:#1F3864;margin-bottom:6px'>Troika "+t.number+(t.type==="Requested"?" &middot; REQ":"")+(t.members&&t.members.length===4?" &middot; QUAD":"")+"</div>"
+        +"<div style='font-size:11px;font-weight:700;color:#1F3864;margin-bottom:6px'>Troika "+t.number
+        +(t.type==="Requested"?" &middot; REQ":"")+(t.members&&t.members.length===4?" &middot; QUAD":"")+"</div>"
         +members+"</div>";
     });
-    var bodyId = "hbody-"+mtg.id.replace(/[^a-z0-9]/gi,"-");
-    var chevId = "hchev-"+mtg.id.replace(/[^a-z0-9]/gi,"-");
-    mtgsHtml += "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;margin-bottom:12px;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.05)'>"
-      +"<div style='background:#1F3864;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer' onclick='toggleHistoryCard(this)'>"
+    mtgsHtml += "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;margin-bottom:12px;overflow:hidden'>"
+      +"<div style='background:#1F3864;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;cursor:pointer' onclick='toggleHistCard(this)'>"
       +"<div style='display:flex;align-items:center;gap:12px'>"
-      +"<div><div style='color:#fff;font-weight:700;font-size:14px'>"+escHtml(mtg.name)+"</div><div style='color:#93B4D8;font-size:12px'>"+fmtDate(mtg.date)+"</div></div>"
+      +"<div><div style='color:#fff;font-weight:700;font-size:14px'>"+escHtml(mtg.name)+"</div>"
+      +"<div style='color:#93B4D8;font-size:12px'>"+fmtDate(mtg.date)+"</div></div>"
       +"<div style='display:flex;gap:6px'>"
       +"<span style='background:rgba(255,255,255,.15);color:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600'>"+mtg.present+" Present</span>"
       +"<span style='background:rgba(255,255,255,.15);color:#fff;border-radius:5px;padding:2px 7px;font-size:11px;font-weight:600'>"+mtg.troikas.length+" Troikas</span>"
-      +"</div></div>"
-      +"<span class='hchev' style='color:#93B4D8;font-size:14px'>&#9660;</span>"
-      +"</div>"
+      +"</div></div><span class='hchev' style='color:#93B4D8;font-size:14px'>&#9660;</span></div>"
       +"<div style='display:none;padding:16px 18px'>"
       +"<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px'>"+troikaCards+"</div>"
       +"</div></div>";
   });
 
   r("history-content",
-    "<div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:22px;flex-wrap:wrap;gap:12px'>"
-    +"<div><div style='font-weight:800;font-size:22px;color:#1F3864'>Meeting History</div>"
-    +"<div style='font-size:13px;color:#718096;margin-top:3px'>Complete records since inception &middot; April 2026</div></div></div>"
+    "<div style='margin-bottom:22px'><div style='font-weight:800;font-size:22px;color:#1F3864'>Meeting History</div>"
+    +"<div style='font-size:13px;color:#718096;margin-top:3px'>Complete records since inception &middot; April 2026</div></div>"
     +"<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:14px;margin-bottom:28px'>"+statsHtml+"</div>"
-    +"<div style='font-weight:700;font-size:14px;color:#1F3864;margin-bottom:14px'>&#128197; Meeting History</div>"
-    +mtgsHtml
-  );
+    +"<div style='font-weight:700;font-size:14px;color:#1F3864;margin-bottom:14px'>&#128197; Meeting History</div>"+mtgsHtml);
 }
 
-// ─── MEMBER DIRECTORY ────────────────────────────────────────────────────────
+function toggleHistCard(el) {
+  const body = el.nextSibling;
+  if (!body) return;
+  const isOpen = body.style.display === "block";
+  body.style.display = isOpen ? "none" : "block";
+  const chev = el.querySelector(".hchev");
+  if (chev) chev.innerHTML = isOpen ? "&#9660;" : "&#9650;";
+}
+
+function getRecentPairingHistory() {
+  let allMeetings = MEETINGS_DB.slice();
+  if (LIVE_MEETINGS.length > 0) {
+    const liveNames = new Set(LIVE_MEETINGS.map(m=>m.name));
+    MEETINGS_DB.forEach(m=>{ if(!liveNames.has(m.name)) LIVE_MEETINGS.push(m); });
+    allMeetings = LIVE_MEETINGS.slice();
+  }
+  allMeetings.sort((a,b)=>b.date.localeCompare(a.date));
+  const recent = allMeetings.slice(0, 3);
+  const pairs = {};
+  recent.forEach(function(mtg) {
+    mtg.troikas.forEach(function(t) {
+      const members = t.members || [];
+      for (let i=0; i<members.length; i++) for (let j=i+1; j<members.length; j++) {
+        const a = typeof members[i]==="string" ? members[i] : members[i].name || "";
+        const b = typeof members[j]==="string" ? members[j] : members[j].name || "";
+        if (!a || !b) continue;
+        const key = [a,b].sort().join(" + ");
+        pairs[key] = (pairs[key]||0) + 1;
+      }
+    });
+  });
+  const lines = Object.keys(pairs).sort((a,b)=>pairs[b]-pairs[a]).slice(0,30);
+  if (!lines.length) return "No prior pairing history available.";
+  return lines.map(k => "- " + k + (pairs[k]>1 ? " (paired "+pairs[k]+"x - avoid)" : " (paired recently - try to avoid)")).join("\n");
+}
+
+function getMemberAttendanceCounts() {
+  let allMeetings = MEETINGS_DB.slice();
+  if (LIVE_MEETINGS.length > 0) {
+    const liveNames = new Set(allMeetings.map(m=>m.name));
+    LIVE_MEETINGS.forEach(m=>{ if(!liveNames.has(m.name)) allMeetings.push(m); });
+  }
+  const counts = {};
+  const totalMeetings = allMeetings.length;
+  allMeetings.forEach(function(mtg) {
+    mtg.troikas.forEach(function(t) {
+      (t.members||[]).forEach(function(m) {
+        const name = typeof m==="string" ? m : m.name || "";
+        if (name) counts[name] = (counts[name]||0) + 1;
+      });
+    });
+  });
+  return { counts:counts, total:totalMeetings };
+}
+
 var membersData = [];
 var memberFilter = { search: "", status: "Active" };
 var editingMember = null;
+var pendingMembers = {};
 
 async function loadAndRenderMembers() {
-  r("members-content", "<div style='text-align:center;padding:40px;color:#718096'><div style='font-size:28px;margin-bottom:8px'>&#9203;</div><div style='font-weight:600'>Loading members...</div></div>");
-
-  // Try Airtable first
+  r("members-content", "<div style='text-align:center;padding:40px;color:#718096'><div style='font-size:28px;margin-bottom:8px'>⏳</div><div style='font-weight:600'>Loading members...</div></div>");
   try {
-    var data = await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members?pageSize=100");
+    const data = await airtableFetch("/v0/appYV9wqR4kEnfmJx/Members?pageSize=100");
     if (data && data.records && data.records.length > 0) {
-      var mapped = data.records.map(function(r) {
-        var f = r.fields || {};
-        function g() { for(var i=0;i<arguments.length;i++){if(f[arguments[i]])return f[arguments[i]];} return ""; }
-        return {
-          id: r.id,
+      const mapped = data.records.map(function(rec) {
+        const f = rec.fields || {};
+        function g() { for(let i=0;i<arguments.length;i++){if(f[arguments[i]])return f[arguments[i]];} return ""; }
+        return {id:rec.id,
           name:    g("Full Name","fldyRJ6kQCL1yrXRF"),
           title:   g("Title","fld6uk6ffzVJa6NAx"),
           company: g("Company","fldjGm8K5DELPvWEu"),
           role:    g("Role / Specialty","fldWHZVS3VWT9UI9S"),
           email:   g("Email","fldXf1bN4wr0zyOEy"),
           phone:   g("Phone","fldDkxJoCRlCl4CfK"),
-          status:  g("Status","fldZNS3JTAwiqGMkG") || "Active",
-          notes:   g("Notes","fldOKBPbJSnLMzxqT")
-        };
-      }).sort(function(a,b){return a.name.localeCompare(b.name);});
-      if (mapped.some(function(m){return m.name;})) {
-        membersData = mapped;
-      } else {
-        throw new Error("Empty field data");
-      }
-    } else {
-      throw new Error("No records");
-    }
+          status:  g("Status","fldZNS3JTAwiqGMkG")||"Active",
+          notes:   g("Notes","fldOKBPbJSnLMzxqT")};
+      }).sort((a,b)=>a.name.localeCompare(b.name));
+      if (mapped.some(m=>m.name)) { membersData = mapped; }
+      else throw new Error("Empty fields");
+    } else throw new Error("No records");
   } catch(e) {
-    console.warn("Members Airtable load failed:", e.message, "— using fallback");
-    membersData = MEMBERS_DB.map(function(m,i){
-      return {id:"local-"+i,name:m.name,title:m.title,company:m.company,
-              role:m.role,email:m.email,phone:m.phone||"",status:m.status||"Active",notes:""};
-    });
+    console.warn("Members load failed:", e.message);
+    membersData = MEMBERS_DB.map((m,i)=>({id:"local-"+i,name:m.name,title:m.title,
+      company:m.company,role:m.role,email:m.email,phone:m.phone||"",status:m.status||"Active",notes:""}));
   }
-
   renderMembersGrid();
 }
 
 function renderMembersGrid() {
-  var sC = {"Active":"#C6F6D5","Group Leader":"#FEFCBF","Guest":"#E2E8F0","Candidate":"#E9D8FD","Inactive":"#FED7D7"};
-  var sT = {"Active":"#276749","Group Leader":"#744210","Guest":"#4A5568","Candidate":"#553C9A","Inactive":"#E53E3E"};
-  var attendanceInfo = getMemberAttendanceCounts();
-  var attendCounts = attendanceInfo.counts;
-  var totalMtgs = attendanceInfo.total;
-  var filtered = membersData.filter(function(m) {
-    var q = memberFilter.search.toLowerCase();
-    return (!q || m.name.toLowerCase().includes(q) || m.company.toLowerCase().includes(q) || m.role.toLowerCase().includes(q))
-      && (memberFilter.status==="All" || m.status===memberFilter.status);
+  const sC={"Active":"#C6F6D5","Group Leader":"#FEFCBF","Guest":"#E2E8F0","Candidate":"#E9D8FD","Inactive":"#FED7D7"};
+  const sT={"Active":"#276749","Group Leader":"#744210","Guest":"#4A5568","Candidate":"#553C9A","Inactive":"#E53E3E"};
+  const att = getMemberAttendanceCounts();
+  const filtered = membersData.filter(m=>{
+    const q=memberFilter.search.toLowerCase();
+    return (!q||m.name.toLowerCase().includes(q)||m.company.toLowerCase().includes(q)||m.role.toLowerCase().includes(q))
+      &&(memberFilter.status==="All"||m.status===memberFilter.status);
   });
-
-  var cards = filtered.map(function(m, idx) {
-    var safeId = "mbr-" + idx;
-    pendingMembers[safeId] = m;
+  const cards = filtered.map((m,idx)=>{
+    const sid="mbr-"+idx; pendingMembers[sid]=m;
     return "<div style='background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:18px;box-shadow:0 2px 8px rgba(0,0,0,.05);position:relative;"+(m.status==="Inactive"?"opacity:.5":"")+";'>"
       +"<span style='position:absolute;top:12px;right:12px;background:"+(sC[m.status]||"#E2E8F0")+";color:"+(sT[m.status]||"#4A5568")+";padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700'>"+m.status+"</span>"
-      +"<div style='font-weight:700;font-size:14px;color:#1F3864;margin-bottom:2px;padding-right:60px'>"+(escHtml(m.name)||"<em style='color:#a0aec0'>No name</em>")+"</div>"
+      +"<div style='font-weight:700;font-size:14px;color:#1F3864;margin-bottom:2px;padding-right:60px'>"+(escHtml(m.name)||"<em>No name</em>")+"</div>"
       +"<div style='font-size:11px;color:#718096;margin-bottom:3px'>"+escHtml(m.title)+"</div>"
       +"<div style='font-size:12px;font-weight:600;color:#4A5568;margin-bottom:4px'>"+escHtml(m.company)+"</div>"
-      +(attendCounts[m.name] ? "<div style='font-size:10px;color:#718096;margin-bottom:6px'>&#128197; "+attendCounts[m.name]+" of "+totalMtgs+" meetings attended</div>" : "")
+      +(att.counts[m.name]?"<div style='font-size:10px;color:#718096;margin-bottom:6px'>&#128197; "+att.counts[m.name]+" of "+att.total+" meetings attended</div>":"")
       +(m.role?"<span style='font-size:11px;color:#2E75B6;background:#EEF2FF;padding:2px 7px;border-radius:4px;display:inline-block;margin-bottom:8px'>"+escHtml(m.role)+"</span>":"")
       +"<div style='font-size:11px;color:#718096;margin-bottom:10px'>"
       +(m.email?"<div>&#9993; "+escHtml(m.email)+"</div>":"")
-      +(m.phone?"<div>&#128222; "+escHtml(m.phone)+"</div>":"")
-      +"</div>"
+      +(m.phone?"<div>&#128222; "+escHtml(m.phone)+"</div>":"")+"</div>"
       +"<div style='display:flex;gap:6px;padding-top:10px;border-top:1px solid #F0F4F8'>"
-      +"<button class='btn-sm' onclick='editMemberById(this)' data-id='"+safeId+"'>&#9999; Edit</button>"
+      +"<button class='btn-sm' data-id='"+sid+"' onclick='editMemberById(this)'>&#9999; Edit</button>"
       +(m.status!=="Inactive"
-        ?"<button class='btn-sm' style='color:#E53E3E' onclick='archiveMemberById(this)' data-id='"+safeId+"'>Archive</button>"
-        :"<button class='btn-sm' style='color:#38A169' onclick='restoreMemberById(this)' data-id='"+safeId+"'>Restore</button>")
+        ?"<button class='btn-sm' style='color:#E53E3E' data-id='"+sid+"' onclick='archiveMemberById(this)'>Archive</button>"
+        :"<button class='btn-sm' style='color:#38A169' data-id='"+sid+"' onclick='restoreMemberById(this)'>Restore</button>")
       +"</div></div>";
   }).join("");
 
@@ -1289,190 +1287,82 @@ function renderMembersGrid() {
     +"<div><div style='font-weight:800;font-size:22px;color:#1F3864'>Member Directory</div>"
     +"<div style='font-size:13px;color:#718096;margin-top:3px'>"+membersData.length+" total &middot; "+filtered.length+" shown</div></div>"
     +"<button onclick='openAddMember()' style='background:#1F3864;color:#fff;border:none;border-radius:9px;padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer'>+ Add Member</button></div>"
-    +"<div style='background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:12px 16px;display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap;align-items:center'>"
-    +"<input class='search-inp' style='flex:1;min-width:180px' placeholder='Search by name, company, or role...' value='"+escHtml(memberFilter.search)+"' oninput='memberSearch(this.value)'>"
+    +"<div style='background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:12px 16px;display:flex;gap:12px;margin-bottom:20px;align-items:center'>"
+    +"<input class='search-inp' style='flex:1;min-width:180px' placeholder='Search...' value='"+escHtml(memberFilter.search)+"' oninput='memberSearch(this.value)'>"
     +"<select class='filter-sel' onchange='memberStatusFilter(this.value)'>"
-    +["Active","All","Group Leader","Guest","Candidate","Inactive"].map(function(s){return "<option "+(memberFilter.status===s?"selected":"")+">"+s+"</option>";}).join("")
+    +["Active","All","Group Leader","Guest","Candidate","Inactive"].map(s=>"<option "+(memberFilter.status===s?"selected":"")+">"+s+"</option>").join("")
     +"</select></div>"
     +"<div style='display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:24px'>"+cards+"</div>"
-    +"<div id='member-modal'></div>"
-  );
+    +"<div id='member-modal'></div>");
 }
 
-var pendingMembers = {};
-function editMemberById(btn) { var m = pendingMembers[btn.dataset.id]; if(m) { editingMember=m; showMemberModal(m); } }
-function archiveMemberById(btn) { var m = pendingMembers[btn.dataset.id]; if(m) archiveMember(m.id); }
-function restoreMemberById(btn) { var m = pendingMembers[btn.dataset.id]; if(m) restoreMember(m.id); }
-
-
-function memberSearch(v) { memberFilter.search=v; renderMembersGrid(); }
-function memberStatusFilter(v) { memberFilter.status=v; renderMembersGrid(); }
-
-function closeMemberModal() {
-  var el = document.getElementById("member-modal");
-  if (el) el.innerHTML = "";
-}
-
-function openAddMember() {
-  editingMember = null;
-  showMemberModal({name:"",title:"",company:"",role:"",email:"",phone:"",status:"Active",notes:""});
-}
-
-function openEditMember(id) {
-  editingMember = membersData.find(function(m){return m.id===id;});
-  if (editingMember) showMemberModal(editingMember);
-}
+function memberSearch(v){memberFilter.search=v;renderMembersGrid();}
+function memberStatusFilter(v){memberFilter.status=v;renderMembersGrid();}
+function editMemberById(btn){const m=pendingMembers[btn.dataset.id];if(m){editingMember=m;showMemberModal(m);}}
+function archiveMemberById(btn){const m=pendingMembers[btn.dataset.id];if(m)archiveMember(m.id);}
+function restoreMemberById(btn){const m=pendingMembers[btn.dataset.id];if(m)restoreMember(m.id);}
+function closeMemberModal(){const el=document.getElementById("member-modal");if(el)el.innerHTML="";}
+function openAddMember(){editingMember=null;showMemberModal({name:"",title:"",company:"",role:"",email:"",phone:"",status:"Active",notes:""});}
+function openEditMember(id){editingMember=membersData.find(m=>m.id===id);if(editingMember)showMemberModal(editingMember);}
 
 function showMemberModal(m) {
-  var statuses = ["Active","Group Leader","Guest","Candidate","Inactive"];
-  var opts = statuses.map(function(s){return "<option "+(m.status===s?"selected":"")+">"+s+"</option>";}).join("");
-  var deleteBtn = editingMember
-    ? "<button style='background:#FED7D7;color:#E53E3E;border:none;padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer' id='member-delete-btn'>Delete</button>"
-    : "";
-  document.getElementById("member-modal").innerHTML =
+  const statuses=["Active","Group Leader","Guest","Candidate","Inactive"];
+  const opts=statuses.map(s=>"<option "+(m.status===s?"selected":"")+">"+s+"</option>").join("");
+  const deleteBtn=editingMember
+    ?"<button style='background:#FED7D7;color:#E53E3E;border:none;padding:8px 16px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer' id='mdel-btn'>Delete</button>"
+    :"";
+  document.getElementById("member-modal").innerHTML=
     "<div style='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center' onclick='if(event.target===this)closeMemberModal()'>"
     +"<div style='background:#fff;border-radius:16px;padding:28px;width:90%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3)'>"
     +"<div style='font-weight:700;font-size:18px;color:#1F3864;margin-bottom:20px'>"+(editingMember?"Edit Member":"Add New Member")+"</div>"
     +"<div style='display:grid;grid-template-columns:1fr 1fr;gap:14px'>"
     +"<div style='grid-column:span 2'><div class='field-lbl'>Full Name *</div><input class='inp' id='mf-name' value='"+escHtml(m.name)+"' placeholder='First Last'></div>"
-    +"<div><div class='field-lbl'>Title</div><input class='inp' id='mf-title' value='"+escHtml(m.title)+"' placeholder='Partner'></div>"
-    +"<div><div class='field-lbl'>Company</div><input class='inp' id='mf-company' value='"+escHtml(m.company)+"' placeholder='Firm Name'></div>"
-    +"<div style='grid-column:span 2'><div class='field-lbl'>Role / Specialty</div><input class='inp' id='mf-role' value='"+escHtml(m.role)+"' placeholder='Attorney - Real Estate'></div>"
-    +"<div><div class='field-lbl'>Email</div><input class='inp' id='mf-email' value='"+escHtml(m.email)+"' placeholder='email@firm.com'></div>"
-    +"<div><div class='field-lbl'>Phone</div><input class='inp' id='mf-phone' value='"+escHtml(m.phone)+"' placeholder='(212) 555-1234'></div>"
+    +"<div><div class='field-lbl'>Title</div><input class='inp' id='mf-title' value='"+escHtml(m.title)+"'></div>"
+    +"<div><div class='field-lbl'>Company</div><input class='inp' id='mf-company' value='"+escHtml(m.company)+"'></div>"
+    +"<div style='grid-column:span 2'><div class='field-lbl'>Role / Specialty</div><input class='inp' id='mf-role' value='"+escHtml(m.role)+"'></div>"
+    +"<div><div class='field-lbl'>Email</div><input class='inp' id='mf-email' value='"+escHtml(m.email)+"'></div>"
+    +"<div><div class='field-lbl'>Phone</div><input class='inp' id='mf-phone' value='"+escHtml(m.phone)+"'></div>"
     +"<div><div class='field-lbl'>Status</div><select class='inp' id='mf-status'>"+opts+"</select></div>"
-    +"<div><div class='field-lbl'>Notes</div><input class='inp' id='mf-notes' value='"+escHtml(m.notes||"")+"' placeholder='Optional'></div>"
+    +"<div><div class='field-lbl'>Notes</div><input class='inp' id='mf-notes' value='"+escHtml(m.notes||"")+"'></div>"
     +"</div>"
     +"<div style='display:flex;gap:10px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid #E2E8F0'>"
     +"<button class='btn-outline' onclick='closeMemberModal()'>Cancel</button>"
     +deleteBtn
-    +"<button class='btn-navy' style='width:auto;padding:8px 24px' id='member-save-btn'>"+(editingMember?"Save Changes":"Add Member")+"</button>"
+    +"<button class='btn-navy' style='width:auto;padding:8px 24px' id='msave-btn'>"+(editingMember?"Save Changes":"Add Member")+"</button>"
     +"</div></div></div>";
-
-  // Attach event listeners after rendering
-  var saveBtn = document.getElementById("member-save-btn");
-  if (saveBtn) saveBtn.onclick = saveMember;
-  var delBtn = document.getElementById("member-delete-btn");
-  if (delBtn) delBtn.onclick = function() { deleteMember(editingMember.id); };
+  const sb=document.getElementById("msave-btn"); if(sb)sb.onclick=saveMember;
+  const db=document.getElementById("mdel-btn"); if(db)db.onclick=()=>deleteMember(editingMember.id);
 }
 
-async function saveMember() {
-  var fields = {
-    "Full Name": document.getElementById("mf-name").value.trim(),
-    "Title":     document.getElementById("mf-title").value.trim(),
-    "Company":   document.getElementById("mf-company").value.trim(),
-    "Role / Specialty": document.getElementById("mf-role").value.trim(),
-    "Email":     document.getElementById("mf-email").value.trim(),
-    "Phone":     document.getElementById("mf-phone").value.trim(),
-    "Status":    document.getElementById("mf-status").value,
-    "Notes":     document.getElementById("mf-notes").value.trim()
-  };
-  if (!fields["Full Name"]) { alert("Name is required"); return; }
-  var btn = document.querySelector("#member-modal .btn-navy");
-  if (btn) { btn.disabled=true; btn.textContent="Saving..."; }
-  try {
-    if (editingMember && !editingMember.id.startsWith("local-")) {
-      await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+editingMember.id, "PATCH", {fields:fields});
-    } else {
-      await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members", "POST", {records:[{fields:fields}]});
+async function saveMember(){
+  const fields={"Full Name":document.getElementById("mf-name").value.trim(),"Title":document.getElementById("mf-title").value.trim(),"Company":document.getElementById("mf-company").value.trim(),"Role / Specialty":document.getElementById("mf-role").value.trim(),"Email":document.getElementById("mf-email").value.trim(),"Phone":document.getElementById("mf-phone").value.trim(),"Status":document.getElementById("mf-status").value,"Notes":document.getElementById("mf-notes").value.trim()};
+  if(!fields["Full Name"]){alert("Name is required");return;}
+  const btn=document.querySelector("#member-modal .btn-navy");
+  if(btn){btn.disabled=true;btn.textContent="Saving...";}
+  try{
+    if(editingMember&&!editingMember.id.startsWith("local-")){
+      await airtableFetch("/v0/appYV9wqR4kEnfmJx/Members/"+editingMember.id,"PATCH",{fields:fields});
+    }else{
+      await airtableFetch("/v0/appYV9wqR4kEnfmJx/Members","POST",{records:[{fields:fields}]});
     }
-    closeMemberModal();
-    await loadAndRenderMembers();
-  } catch(err) {
-    alert("Save failed: "+err.message);
-    if (btn) { btn.disabled=false; btn.textContent="Save Changes"; }
-  }
+    closeMemberModal(); await loadAndRenderMembers();
+  }catch(err){alert("Save failed: "+err.message);if(btn){btn.disabled=false;btn.textContent="Save Changes";}}
 }
 
-async function archiveMember(id) {
-  if (id.startsWith("local-")) { alert("Connect to Airtable to update status."); return; }
-  await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+id,"PATCH",{fields:{"Status":"Inactive"}});
+async function archiveMember(id){
+  if(id.startsWith("local-")){alert("Connect to Airtable.");return;}
+  await airtableFetch("/v0/appYV9wqR4kEnfmJx/Members/"+id,"PATCH",{fields:{"Status":"Inactive"}});
   await loadAndRenderMembers();
 }
-
-async function restoreMember(id) {
-  if (id.startsWith("local-")) { alert("Connect to Airtable to update status."); return; }
-  await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+id,"PATCH",{fields:{"Status":"Active"}});
+async function restoreMember(id){
+  if(id.startsWith("local-")){alert("Connect to Airtable.");return;}
+  await airtableFetch("/v0/appYV9wqR4kEnfmJx/Members/"+id,"PATCH",{fields:{"Status":"Active"}});
   await loadAndRenderMembers();
 }
-
-async function deleteMember(id) {
-  if (!confirm("Permanently delete this member?")) return;
-  if (!id.startsWith("local-")) await airtableFetch("/v0/"+AT_BASE_LIVE+"/Members/"+id,"DELETE");
-  closeMemberModal();
-  await loadAndRenderMembers();
-}
-
-function toggleHistoryCard(el) {
-  var body = el.nextSibling;
-  if (!body) return;
-  var isOpen = body.style.display === "block";
-  body.style.display = isOpen ? "none" : "block";
-  var chev = el.querySelector(".hchev");
-  if (chev) chev.innerHTML = isOpen ? "&#9660;" : "&#9650;";
-}
-
-
-var LIVE_MEETINGS = [];
-
-// ─── PAIRING HISTORY HELPER ───────────────────────────────────────────────────
-function getRecentPairingHistory() {
-  // Collect pairings from the last 3 meetings
-  var allMeetings = MEETINGS_DB.slice();
-  // Also include any live meetings we loaded
-  if (typeof LIVE_MEETINGS !== "undefined" && LIVE_MEETINGS.length > 0) {
-    var liveNames = new Set(LIVE_MEETINGS.map(function(m){return m.name;}));
-    MEETINGS_DB.forEach(function(m){
-      if (!liveNames.has(m.name)) LIVE_MEETINGS.push(m);
-    });
-    allMeetings = LIVE_MEETINGS.slice();
-  }
-  // Sort by date descending, take last 3
-  allMeetings.sort(function(a,b){return b.date.localeCompare(a.date);});
-  var recent = allMeetings.slice(0, 3);
-
-  var pairs = {};
-  recent.forEach(function(mtg) {
-    mtg.troikas.forEach(function(t) {
-      var members = t.members || [];
-      for (var i=0; i<members.length; i++) {
-        for (var j=i+1; j<members.length; j++) {
-          var a = typeof members[i]==="string" ? members[i] : members[i].name || "";
-          var b = typeof members[j]==="string" ? members[j] : members[j].name || "";
-          if (!a || !b) continue;
-          var key = [a,b].sort().join(" + ");
-          pairs[key] = (pairs[key]||0) + 1;
-        }
-      }
-    });
-  });
-
-  // Return the ones paired more than once, or most recent single pairings
-  var lines = Object.keys(pairs).sort(function(a,b){return pairs[b]-pairs[a];}).slice(0, 30);
-  if (!lines.length) return "No prior pairing history available.";
-  return lines.map(function(k){
-    return "- " + k + (pairs[k]>1 ? " (paired "+pairs[k]+"x — avoid)" : " (paired recently — try to avoid)");
-  }).join("\n");
-}
-
-// ─── ATTENDANCE COUNTER ───────────────────────────────────────────────────────
-function getMemberAttendanceCounts() {
-  var counts = {};
-  var allMeetings = MEETINGS_DB.slice();
-  if (typeof LIVE_MEETINGS !== "undefined" && LIVE_MEETINGS.length > 0) {
-    var liveNames = new Set(allMeetings.map(function(m){return m.name;}));
-    LIVE_MEETINGS.forEach(function(m){ if(!liveNames.has(m.name)) allMeetings.push(m); });
-  }
-  var totalMeetings = allMeetings.length;
-  allMeetings.forEach(function(mtg) {
-    mtg.troikas.forEach(function(t) {
-      (t.members||[]).forEach(function(m) {
-        var name = typeof m==="string" ? m : m.name || "";
-        if (name) counts[name] = (counts[name]||0) + 1;
-      });
-    });
-  });
-  return { counts: counts, total: totalMeetings };
+async function deleteMember(id){
+  if(!confirm("Permanently delete this member?"))return;
+  if(!id.startsWith("local-"))await airtableFetch("/v0/appYV9wqR4kEnfmJx/Members/"+id,"DELETE");
+  closeMemberModal(); await loadAndRenderMembers();
 }
 
 renderBuild();
