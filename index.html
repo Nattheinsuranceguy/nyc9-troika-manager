@@ -737,7 +737,10 @@ IMPORTANT OUTPUT FORMAT:
 - Your entire response must start with the character { and end with the character }
 - Structure: {"troikas":[{"number":1,"type":"Requested","note":"brief reason","why":"why it works","members":[{"name":"Full Name","role":"Role / Specialty","company":"Company"},{"name":"Full Name","role":"Role / Specialty","company":"Company"},{"name":"Full Name","role":"Role / Specialty","company":"Company"}]}],"unassigned":[]}
 - "type" must be one of: "Requested", "Role-based", or "Quad"
-- Begin your response with { immediately:`;
+RECENT PAIRING HISTORY — avoid repeating these pairs where possible:
+\${getRecentPairingHistory()}
+
+- Begin your response with { immediately:\`;
 }
 
 function fallbackTroikas(){
@@ -1115,6 +1118,7 @@ async function loadAndRenderHistory() {
         if (!liveNames.has(m.name)) meetings.push(m);
       });
       meetings.sort(function(a,b) { return a.date.localeCompare(b.date); });
+      LIVE_MEETINGS = meetings.slice(); // store globally for pairing history
     }
   } catch(e) {
     console.warn("Airtable history load failed, using hardcoded:", e.message);
@@ -1235,6 +1239,9 @@ async function loadAndRenderMembers() {
 function renderMembersGrid() {
   var sC = {"Active":"#C6F6D5","Group Leader":"#FEFCBF","Guest":"#E2E8F0","Candidate":"#E9D8FD","Inactive":"#FED7D7"};
   var sT = {"Active":"#276749","Group Leader":"#744210","Guest":"#4A5568","Candidate":"#553C9A","Inactive":"#E53E3E"};
+  var attendanceInfo = getMemberAttendanceCounts();
+  var attendCounts = attendanceInfo.counts;
+  var totalMtgs = attendanceInfo.total;
   var filtered = membersData.filter(function(m) {
     var q = memberFilter.search.toLowerCase();
     return (!q || m.name.toLowerCase().includes(q) || m.company.toLowerCase().includes(q) || m.role.toLowerCase().includes(q))
@@ -1248,7 +1255,8 @@ function renderMembersGrid() {
       +"<span style='position:absolute;top:12px;right:12px;background:"+(sC[m.status]||"#E2E8F0")+";color:"+(sT[m.status]||"#4A5568")+";padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700'>"+m.status+"</span>"
       +"<div style='font-weight:700;font-size:14px;color:#1F3864;margin-bottom:2px;padding-right:60px'>"+(escHtml(m.name)||"<em style='color:#a0aec0'>No name</em>")+"</div>"
       +"<div style='font-size:11px;color:#718096;margin-bottom:3px'>"+escHtml(m.title)+"</div>"
-      +"<div style='font-size:12px;font-weight:600;color:#4A5568;margin-bottom:6px'>"+escHtml(m.company)+"</div>"
+      +"<div style='font-size:12px;font-weight:600;color:#4A5568;margin-bottom:4px'>"+escHtml(m.company)+"</div>"
+      +(attendCounts[m.name] ? "<div style='font-size:10px;color:#718096;margin-bottom:6px'>&#128197; "+attendCounts[m.name]+" of "+totalMtgs+" meetings attended</div>" : "")
       +(m.role?"<span style='font-size:11px;color:#2E75B6;background:#EEF2FF;padding:2px 7px;border-radius:4px;display:inline-block;margin-bottom:8px'>"+escHtml(m.role)+"</span>":"")
       +"<div style='font-size:11px;color:#718096;margin-bottom:10px'>"
       +(m.email?"<div>&#9993; "+escHtml(m.email)+"</div>":"")
@@ -1388,6 +1396,69 @@ function toggleHistoryCard(el) {
   body.style.display = isOpen ? "none" : "block";
   var chev = el.querySelector(".hchev");
   if (chev) chev.innerHTML = isOpen ? "&#9660;" : "&#9650;";
+}
+
+
+var LIVE_MEETINGS = [];
+
+// ─── PAIRING HISTORY HELPER ───────────────────────────────────────────────────
+function getRecentPairingHistory() {
+  // Collect pairings from the last 3 meetings
+  var allMeetings = MEETINGS_DB.slice();
+  // Also include any live meetings we loaded
+  if (typeof LIVE_MEETINGS !== "undefined" && LIVE_MEETINGS.length > 0) {
+    var liveNames = new Set(LIVE_MEETINGS.map(function(m){return m.name;}));
+    MEETINGS_DB.forEach(function(m){
+      if (!liveNames.has(m.name)) LIVE_MEETINGS.push(m);
+    });
+    allMeetings = LIVE_MEETINGS.slice();
+  }
+  // Sort by date descending, take last 3
+  allMeetings.sort(function(a,b){return b.date.localeCompare(a.date);});
+  var recent = allMeetings.slice(0, 3);
+
+  var pairs = {};
+  recent.forEach(function(mtg) {
+    mtg.troikas.forEach(function(t) {
+      var members = t.members || [];
+      for (var i=0; i<members.length; i++) {
+        for (var j=i+1; j<members.length; j++) {
+          var a = typeof members[i]==="string" ? members[i] : members[i].name || "";
+          var b = typeof members[j]==="string" ? members[j] : members[j].name || "";
+          if (!a || !b) continue;
+          var key = [a,b].sort().join(" + ");
+          pairs[key] = (pairs[key]||0) + 1;
+        }
+      }
+    });
+  });
+
+  // Return the ones paired more than once, or most recent single pairings
+  var lines = Object.keys(pairs).sort(function(a,b){return pairs[b]-pairs[a];}).slice(0, 30);
+  if (!lines.length) return "No prior pairing history available.";
+  return lines.map(function(k){
+    return "- " + k + (pairs[k]>1 ? " (paired "+pairs[k]+"x — avoid)" : " (paired recently — try to avoid)");
+  }).join("\n");
+}
+
+// ─── ATTENDANCE COUNTER ───────────────────────────────────────────────────────
+function getMemberAttendanceCounts() {
+  var counts = {};
+  var allMeetings = MEETINGS_DB.slice();
+  if (typeof LIVE_MEETINGS !== "undefined" && LIVE_MEETINGS.length > 0) {
+    var liveNames = new Set(allMeetings.map(function(m){return m.name;}));
+    LIVE_MEETINGS.forEach(function(m){ if(!liveNames.has(m.name)) allMeetings.push(m); });
+  }
+  var totalMeetings = allMeetings.length;
+  allMeetings.forEach(function(mtg) {
+    mtg.troikas.forEach(function(t) {
+      (t.members||[]).forEach(function(m) {
+        var name = typeof m==="string" ? m : m.name || "";
+        if (name) counts[name] = (counts[name]||0) + 1;
+      });
+    });
+  });
+  return { counts: counts, total: totalMeetings };
 }
 
 renderBuild();
