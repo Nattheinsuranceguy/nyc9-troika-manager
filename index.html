@@ -833,7 +833,7 @@ async function saveAirtable(){
 
     state.saved = true;
     [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=true; b.textContent="✓ Saved to Airtable"; b.style.background="#38A169"; b.style.color="#fff"; } });
-    alert(`Saved to Airtable!\n\n${state.troikas.length} Troikas from "${state.meetingName||"Meeting"}" added to your NYC9 Troika Manager base.`);
+    alert("Saved to Airtable!\n\n" + state.troikas.length + " Troikas added to your NYC9 Troika Manager base.");
 
   } catch(err) {
     [saveBtn, footBtn].forEach(b=>{ if(b){ b.disabled=false; b.textContent="💾 Save to Airtable"; } });
